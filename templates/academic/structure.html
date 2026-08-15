@@ -1,0 +1,142 @@
+{% extends "base.html" %}
+
+{% comment %}
+Academic Structure (docs/03_Views_and_Endpoints.md: ongoing Session/Term creation,
+Owner only).
+
+Two forms and three actions on one URL, each carrying a hidden `action` field the
+view dispatches on. `open_form` is set when a submission came back invalid, so the
+<details> holding that form stays open over the errors instead of collapsing and
+hiding them.
+{% endcomment %}
+
+{% block title %}Academic structure · AdminPilot{% endblock %}
+
+{% block content %}
+  <div class="page-header">
+    <div>
+      <h1>Academic structure</h1>
+      <p class="page-header__sub">
+        {% if current_term %}
+          Current: {{ current_term.session.name }} — {{ current_term.name }}
+        {% else %}
+          No current term set
+        {% endif %}
+      </p>
+    </div>
+  </div>
+
+  {% if not current_term %}
+    <div class="card">
+      <p class="card__title">Set a current term</p>
+      <p>
+        New enrolments, fee structures and payments are all recorded against the
+        current term. Until one is set, those screens have nowhere to file what they
+        create.
+      </p>
+    </div>
+  {% endif %}
+
+  <div class="card">
+    <p class="card__title">Sessions and terms</p>
+    <div class="table-wrap">
+      <table class="table">
+        <thead>
+          <tr>
+            <th scope="col">Session</th>
+            <th scope="col">Dates</th>
+            <th scope="col">Terms</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for session in sessions %}
+            <tr>
+              <td>
+                <strong>{{ session.name }}</strong>
+                {% if session.is_current %}
+                  <span class="badge badge--success">Current</span>
+                {% else %}
+                  <form method="post" style="display:inline;">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="set_current_session">
+                    <input type="hidden" name="session_id" value="{{ session.pk }}">
+                    <button type="submit" class="btn btn--link">Make current</button>
+                  </form>
+                {% endif %}
+              </td>
+              <td>{{ session.start_date|date:"j M Y" }} – {{ session.end_date|date:"j M Y" }}</td>
+              <td>
+                {% for term in session.terms.all %}
+                  <div>
+                    {{ term.name }}
+                    <span class="field__help">
+                      {{ term.start_date|date:"j M" }} – {{ term.end_date|date:"j M Y" }}
+                    </span>
+                    {% if term.is_current %}
+                      <span class="badge badge--success">Current</span>
+                    {% else %}
+                      <form method="post" style="display:inline;">
+                        {% csrf_token %}
+                        <input type="hidden" name="action" value="set_current_term">
+                        <input type="hidden" name="term_id" value="{{ term.pk }}">
+                        <button type="submit" class="btn btn--link">Make current</button>
+                      </form>
+                    {% endif %}
+                  </div>
+                {% empty %}
+                  <span class="field__help">No terms yet — add one below.</span>
+                {% endfor %}
+              </td>
+            </tr>
+          {% empty %}
+            <tr>
+              <td colspan="3" class="table__empty">No sessions yet.</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <details {% if open_form == 'session' %}open{% endif %}>
+      <summary class="card__title">Add a session</summary>
+      <p class="field__help">
+        A new session is not made current automatically — a school setting up next
+        year in March is still teaching this year.
+      </p>
+      <form method="post" class="form" novalidate>
+        {% csrf_token %}
+        <input type="hidden" name="action" value="add_session">
+        {% with form=session_form %}
+          {% include "includes/form_errors.html" %}
+          {% for field in form %}
+            {% include "includes/field.html" %}
+          {% endfor %}
+        {% endwith %}
+        <div class="form-actions">
+          <button type="submit" class="btn btn--primary">Add session</button>
+        </div>
+      </form>
+    </details>
+  </div>
+
+  <div class="card">
+    <details {% if open_form == 'term' %}open{% endif %}>
+      <summary class="card__title">Add a term</summary>
+      <form method="post" class="form" novalidate>
+        {% csrf_token %}
+        <input type="hidden" name="action" value="add_term">
+        {% with form=term_form %}
+          {% include "includes/form_errors.html" %}
+          {% for field in form %}
+            {% include "includes/field.html" %}
+          {% endfor %}
+        {% endwith %}
+        <div class="form-actions">
+          <button type="submit" class="btn btn--primary">Add term</button>
+        </div>
+      </form>
+    </details>
+  </div>
+{% endblock %}

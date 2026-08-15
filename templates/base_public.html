@@ -1,0 +1,53 @@
+{% comment %}
+Public shell for Registration, Login, and password reset (docs/08_UI_UX.md & Modern Redesign).
+{% endcomment %}
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}AdminPilot{% endblock %}</title>
+
+  <!-- Google Fonts: Plus Jakarta Sans, Inter, Geist Mono -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="{% static 'css/tokens.css' %}">
+  <link rel="stylesheet" href="{% static 'css/app.css' %}">
+
+  <!-- Theme Initializer -->
+  <script>
+    (function() {
+      var saved = localStorage.getItem('adminpilot_theme');
+      var theme = saved || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+      document.documentElement.setAttribute('data-theme', theme);
+    })();
+  </script>
+</head>
+<body>
+  <main class="public">
+    <div class="public__panel">
+      <span class="public__brand">
+        <svg style="display:inline-block; vertical-align:middle; margin-right:6px;" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M22 10v6M2 10l10-5 10 5-10 5z"/>
+          <path d="M6 12v5c3 3 9 3 12 0v-5"/>
+        </svg>
+        AdminPilot
+      </span>
+      <p class="public__lede">{% block lede %}School administration &amp; financial management, made simple.{% endblock %}</p>
+
+      {% if messages %}
+        <ul class="messages">
+          {% for message in messages %}
+            <li class="message message--{{ message.tags|default:'info' }}">{{ message }}</li>
+          {% endfor %}
+        </ul>
+      {% endif %}
+
+      {% block content %}{% endblock %}
+    </div>
+  </main>
+</body>
+</html>

@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+
+{% comment %}
+Institution Settings (docs/03_Views_and_Endpoints.md, Owner only).
+
+The code lock is explained in the page, not just enforced. An Owner who finds a
+field disabled with no reason given will assume it is a bug and ask; an Owner told
+that receipts already carry the code will understand why it cannot move.
+{% endcomment %}
+
+{% block title %}Institution settings · AdminPilot{% endblock %}
+
+{% block content %}
+  <div class="page-header">
+    <div>
+      <h1>Institution settings</h1>
+      <p class="page-header__sub">
+        Registered {{ institution.created_at|date:"j F Y" }} ·
+        {{ institution.get_status_display }}
+      </p>
+    </div>
+  </div>
+
+  {% if code_is_locked %}
+    <div class="card">
+      <p class="card__title">Institution code is fixed</p>
+      <p>
+        Receipts have already been issued under
+        <strong>{{ institution.code }}</strong>. Changing it now would leave those
+        receipt numbers referring to a code this school no longer uses, so the field
+        stays as it is.
+      </p>
+    </div>
+  {% endif %}
+
+  <div class="card">
+    {% include "includes/form_errors.html" %}
+
+    <form method="post" class="form form--wide" novalidate>
+      {% csrf_token %}
+      {% for field in form %}
+        {% include "includes/field.html" %}
+      {% endfor %}
+      <div class="form-actions">
+        <button type="submit" class="btn btn--primary">Save changes</button>
+        <a class="btn btn--secondary" href="{% url 'core:dashboard' %}">Cancel</a>
+      </div>
+    </form>
+  </div>
+{% endblock %}

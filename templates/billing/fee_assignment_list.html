@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+
+{% comment %}
+Student fee assignments for one fee structure — the path to per-student
+adjustments after the structure is locked (docs/02_Database.md).
+{% endcomment %}
+
+{% block title %}Assignments — {{ fee_structure.name }} · AdminPilot{% endblock %}
+
+{% block content %}
+  <div class="page-header">
+    <div>
+      <h1>Student assignments</h1>
+      <p class="page-header__sub">
+        {{ fee_structure.name }} · {{ fee_structure.klass.name }}
+        {% if fee_structure.locked %}
+          · <span class="badge badge--muted">Locked</span>
+        {% endif %}
+      </p>
+    </div>
+    <div class="quick-actions">
+      <a class="btn btn--secondary" href="{% url 'billing:fee_structure_detail' fee_structure.pk %}">Back to fee structure</a>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="table-wrap">
+      <table class="table">
+        <thead>
+          <tr>
+            <th scope="col">Student</th>
+            <th scope="col">Admission no.</th>
+            <th scope="col" style="text-align:right;">Amount due</th>
+            <th scope="col" style="text-align:right;">Outstanding</th>
+            <th scope="col">Adjusted?</th>
+            <th scope="col"><span class="visually-hidden">Actions</span></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for assignment in assignments %}
+            <tr>
+              <td><strong>{{ assignment.student.full_name }}</strong></td>
+              <td>{{ assignment.student.admission_number }}</td>
+              <td style="text-align:right;">{{ assignment.amount_due }}</td>
+              <td style="text-align:right;">{{ assignment.outstanding_balance }}</td>
+              <td>
+                {% if assignment.adjustment_reason %}
+                  <span class="badge badge--info" title="{{ assignment.adjustment_reason }}">Yes</span>
+                {% else %}
+                  —
+                {% endif %}
+              </td>
+              <td>
+                {% if can_manage %}
+                  <a class="btn btn--link" href="{% url 'billing:fee_assignment_adjust' assignment.pk %}">Adjust</a>
+                {% endif %}
+                <a class="btn btn--link" href="{% url 'students:detail' assignment.student.pk %}">Profile</a>
+              </td>
+            </tr>
+          {% empty %}
+            <tr>
+              <td colspan="6" class="table__empty">No students assigned to this fee structure.</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  {% if is_paginated %}
+    <nav class="quick-actions" aria-label="Pagination">
+      {% if page_obj.has_previous %}
+        <a class="btn btn--secondary" href="?page={{ page_obj.previous_page_number }}">Previous</a>
+      {% endif %}
+      <span class="page-header__sub">Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
+      {% if page_obj.has_next %}
+        <a class="btn btn--secondary" href="?page={{ page_obj.next_page_number }}">Next</a>
+      {% endif %}
+    </nav>
+  {% endif %}
+{% endblock %}

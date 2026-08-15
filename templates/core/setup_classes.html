@@ -1,0 +1,43 @@
+{% extends "core/setup_base.html" %}
+
+{% comment %}
+Step 3 of 3: the initial class list.
+
+One name per line rather than a formset with an "add another row" button. A school
+typing in fifteen classes should not need fifteen round trips, and doing it
+client-side is out (docs/08_UI_UX.md's minimal-JS rule). Single-class edits after
+setup go through the normal Class form.
+{% endcomment %}
+
+{% block setup_title %}Classes{% endblock %}
+
+{% block setup_content %}
+  <div class="page-header">
+    <div>
+      <h1>Your classes</h1>
+      <p class="page-header__sub">Last step.</p>
+    </div>
+  </div>
+
+  <div class="card">
+    <p class="card__title">Class names</p>
+    <p>
+      Write these the way your staff write them. The bulk student import uses one
+      spreadsheet tab per class, matched on this name exactly — so
+      <strong>JSS 1A</strong> and <strong>Jss1a</strong> are not interchangeable
+      later.
+    </p>
+
+    {% include "includes/form_errors.html" %}
+
+    <form method="post" class="form form--wide" novalidate>
+      {% csrf_token %}
+      {% for field in form %}
+        {% include "includes/field.html" %}
+      {% endfor %}
+      <div class="form-actions">
+        <button type="submit" class="btn btn--primary">Finish setup</button>
+      </div>
+    </form>
+  </div>
+{% endblock %}

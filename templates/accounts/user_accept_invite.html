@@ -1,0 +1,30 @@
+{% extends "base_public.html" %}
+
+{% comment %}
+Invited user setup acceptance page (docs/03_Views_and_Endpoints.md).
+{% endcomment %}
+
+{% block title %}Set up your account · AdminPilot{% endblock %}
+
+{% block content %}
+  <div class="card" style="max-width: 440px; margin: 3rem auto;">
+    <h1 style="font-size:1.5rem; margin-bottom:var(--space-2);">Welcome to AdminPilot</h1>
+    <p class="field__help" style="margin-bottom:var(--space-4);">
+      Hi {{ target_user.full_name }}, create your password below to activate your account as a {{ target_user.get_role_display }}.
+    </p>
+
+    {% include "includes/form_errors.html" %}
+
+    <form method="post" class="form" novalidate>
+      {% csrf_token %}
+
+      {% for field in form %}
+        {% include "includes/field.html" %}
+      {% endfor %}
+
+      <div class="form-actions" style="margin-top:var(--space-4);">
+        <button type="submit" class="btn btn--primary" style="width:100%;">Activate account &amp; Sign in</button>
+      </div>
+    </form>
+  </div>
+{% endblock %}

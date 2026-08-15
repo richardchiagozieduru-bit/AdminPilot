@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+
+{% block title %}Delete {{ student.full_name }} · AdminPilot{% endblock %}
+
+{% block content %}
+  <div class="page-header">
+    <div>
+      <h1>Delete Student</h1>
+      <p class="page-header__sub">
+        {{ student.full_name }} · {{ student.admission_number }} {% if current_class %}· {{ current_class.name }}{% endif %}
+      </p>
+    </div>
+  </div>
+
+  <div class="card" style="max-width: 680px; border-left: 4px solid var(--color-danger, #dc2626);">
+    <h2 class="card__title" style="color: var(--color-danger, #dc2626); font-size: var(--text-lg); margin-bottom: var(--space-3);">
+      Are you sure you want to delete this student?
+    </h2>
+
+    <p style="color: var(--color-text); line-height: 1.5; margin-bottom: var(--space-4);">
+      You are about to delete <strong>{{ student.full_name }}</strong> (Admission No: <code style="font-family: var(--font-mono); font-size: var(--text-sm);">{{ student.admission_number }}</code>).
+    </p>
+
+    <!-- Overview Box -->
+    <div style="background: var(--color-bg-subtle, #f8fafc); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: var(--space-4); margin-bottom: var(--space-4);">
+      <div style="font-weight: 700; font-size: var(--text-sm); margin-bottom: var(--space-3); color: var(--color-text);">Student Summary:</div>
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3); font-size: var(--text-sm);">
+        <div><strong>Current Class:</strong> {{ current_class.name|default:"Not enrolled" }}</div>
+        <div><strong>Status:</strong> <span class="badge {% if student.status == 'active' %}badge--success{% else %}badge--neutral{% endif %}">{{ student.get_status_display }}</span></div>
+        <div><strong>Fee Packages:</strong> {{ assignment_count }} assigned</div>
+        <div><strong>Payment Records:</strong> {{ payment_count }} recorded</div>
+        <div><strong>Credit Balance:</strong> ₦{{ credit_balance|default:"0.00" }}</div>
+      </div>
+    </div>
+
+    <form method="post">
+      {% csrf_token %}
+
+      <!-- Option to choose what to do with financial records -->
+      <div style="background: var(--color-bg-surface, #ffffff); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: var(--space-4); margin-bottom: var(--space-4);">
+        <div style="font-weight: 700; font-size: var(--text-sm); margin-bottom: var(--space-2); color: var(--color-text);">
+          Financial Records Preference:
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: var(--space-3); margin-top: var(--space-3);">
+          <label style="display: flex; align-items: flex-start; gap: var(--space-2); cursor: pointer; font-size: var(--text-sm);">
+            <input type="radio" name="keep_records" value="off" checked style="margin-top: 3px; accent-color: var(--color-danger, #dc2626);" />
+            <div>
+              <strong style="color: var(--color-danger, #dc2626);">Delete everything (Clean Student Plate)</strong>
+              <div style="color: var(--color-text-muted); font-size: var(--text-xs); margin-top: 2px;">
+                Permanently deletes the student, enrollments, fee packages, payments, receipts, and allocations. Ideal for resetting test data.
+              </div>
+            </div>
+          </label>
+
+          <label style="display: flex; align-items: flex-start; gap: var(--space-2); cursor: pointer; font-size: var(--text-sm);">
+            <input type="radio" name="keep_records" value="on" style="margin-top: 3px; accent-color: var(--color-primary);" />
+            <div>
+              <strong>Keep payment records (Soft Archive)</strong>
+              <div style="color: var(--color-text-muted); font-size: var(--text-xs); margin-top: 2px;">
+                Retains financial logs and audit trail for accounting compliance, while archiving the student from active class rosters.
+              </div>
+            </div>
+          </label>
+        </div>
+      </div>
+
+      <div class="alert alert--warning" style="margin-bottom: var(--space-4); font-size: var(--text-xs);">
+        <strong>Warning:</strong> Deleting all records is permanent and cannot be undone.
+      </div>
+
+      <div class="form-actions" style="margin-top: var(--space-4);">
+        <button type="submit" class="btn btn--danger" style="background: var(--color-danger, #dc2626); color: #fff; border-color: var(--color-danger, #dc2626); font-weight: 600;">
+          Confirm & Delete Student
+        </button>
+        <a class="btn btn--secondary" href="{% url 'students:detail' student.pk %}">Cancel</a>
+      </div>
+    </form>
+  </div>
+{% endblock %}

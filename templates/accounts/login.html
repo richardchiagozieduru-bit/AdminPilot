@@ -1,0 +1,31 @@
+{% extends "base_public.html" %}
+
+{% block title %}Sign in · AdminPilot{% endblock %}
+{% block lede %}Sign in to your school's account.{% endblock %}
+
+{% block content %}
+  <h1>Sign in</h1>
+
+  {% comment %}
+  A pending school's explicit status message arrives as a non-field error —
+  docs/08_UI_UX.md's deliberate exception to auth-error vagueness.
+  {% endcomment %}
+  {% include "includes/form_errors.html" %}
+
+  <form method="post" class="form" novalidate>
+    {% csrf_token %}
+    {% for field in form %}
+      {% include "includes/field.html" %}
+    {% endfor %}
+    {% if next %}<input type="hidden" name="next" value="{{ next }}">{% endif %}
+
+    <div class="form-actions">
+      <button type="submit" class="btn btn--primary">Sign in</button>
+      <a href="{% url 'accounts:password_reset' %}">Forgot your password?</a>
+    </div>
+  </form>
+
+  <p class="public__footer">
+    New school? <a href="{% url 'accounts:register' %}">Register here</a>
+  </p>
+{% endblock %}

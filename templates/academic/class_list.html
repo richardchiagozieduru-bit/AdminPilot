@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+
+{% comment %}
+Class list (docs/03_Views_and_Endpoints.md: list with the current student count
+per class; Owner/Administrator edit, Bursar view only).
+
+`can_manage` comes from the same permission matrix the view gated on, so a
+Bursar's page contains no edit or deactivate markup at all rather than markup
+that would 403 on click.
+{% endcomment %}
+
+{% block title %}Classes · AdminPilot{% endblock %}
+
+{% block content %}
+  <div class="page-header">
+    <div>
+      <h1>Classes</h1>
+      <p class="page-header__sub">
+        {{ active_count }} active
+        {% if current_term %}
+          · counts are for {{ current_term.session.name }} — {{ current_term.name }}
+        {% else %}
+          · no current term set, so no enrolment counts yet
+        {% endif %}
+      </p>
+    </div>
+    {% if can_manage %}
+      <a class="btn btn--primary" href="{% url 'academic:class_add' %}">Add class</a>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <div class="table-wrap">
+      <table class="table">
+        <thead>
+          <tr>
+            <th scope="col">Class</th>
+            <th scope="col">Order</th>
+            <th scope="col">Students</th>
+            <th scope="col">Status</th>
+            {% if can_manage %}<th scope="col"><span class="visually-hidden">Actions</span></th>{% endif %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for klass in classes %}
+            <tr>
+              <td><strong>{{ klass.name }}</strong></td>
+              <td>{{ klass.order }}</td>
+              <td>{{ klass.student_count|default_if_none:"—" }}</td>
+              <td>
+                {% if klass.status == 'active' %}
+                  <span class="badge badge--success">Active</span>
+                {% else %}
+                  <span class="badge badge--muted">Inactive</span>
+                {% endif %}
+              </td>
+              {% if can_manage %}
+                <td>
+                  <a class="btn btn--link" href="{% url 'academic:class_edit' klass.pk %}">Edit</a>
+                  {% comment %}
+                  POST, not a link: both are state changes. Deactivating a class
+                  with students in it is allowed and expected — it stops new
+                  enrolments, it does not touch the students already there.
+                  {% endcomment %}
+                  {% if klass.status == 'active' %}
+                    <form method="post" action="{% url 'academic:class_deactivate' klass.pk %}" style="display:inline;">
+                      {% csrf_token %}
+                      <button type="submit" class="btn btn--link">Deactivate</button>
+                    </form>
+                  {% else %}
+                    <form method="post" action="{% url 'academic:class_reactivate' klass.pk %}" style="display:inline;">
+                      {% csrf_token %}
+                      <button type="submit" class="btn btn--link">Reactivate</button>
+                    </form>
+                  {% endif %}
+                </td>
+              {% endif %}
+            </tr>
+          {% empty %}
+            <tr>
+              <td colspan="{% if can_manage %}5{% else %}4{% endif %}" class="table__empty">
+                No classes yet.
+                {% if can_manage %}
+                  <a href="{% url 'academic:class_add' %}">Add your first one.</a>
+                {% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <p class="field__help">
+    Deactivating a class keeps its history. Students already enrolled stay enrolled
+    and their records are untouched — the class just stops being offered for new
+    enrolments and drops out of the bulk-import template.
+  </p>
+{% endblock %}

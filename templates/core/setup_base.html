@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+
+{% comment %}
+Shell for the three setup steps.
+
+No sidebar: a school mid-setup has no term and no classes, so most of the nav
+would lead to screens that can only say "configure this first". The step
+indicator replaces it — the Owner should know how many screens are left.
+
+Extends base.html rather than the public shell because the Owner is signed in and
+the topnav's institution name and sign-out belong on these screens too.
+{% endcomment %}
+
+{% block sidebar %}{% endblock %}
+
+{% block title %}{% block setup_title %}Set up{% endblock %} · AdminPilot{% endblock %}
+
+{% block content %}
+  <ol class="steps">
+    {% comment %}
+    `forloop` over a literal list is not available, so the three are written out.
+    step_number comes from the view, which derives it from the same STEP_ORDER
+    tuple that chooses the template — the indicator cannot drift from the step.
+    {% endcomment %}
+    <li class="steps__item{% if step_number > 1 %} steps__item--done{% elif step_number == 1 %} steps__item--current{% endif %}">
+      1. School details
+    </li>
+    <li class="steps__item{% if step_number > 2 %} steps__item--done{% elif step_number == 2 %} steps__item--current{% endif %}">
+      2. Session and term
+    </li>
+    <li class="steps__item{% if step_number == 3 %} steps__item--current{% endif %}">
+      3. Classes
+    </li>
+  </ol>
+
+  {% block setup_content %}{% endblock %}
+{% endblock %}

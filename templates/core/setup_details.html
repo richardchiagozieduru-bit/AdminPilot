@@ -1,0 +1,40 @@
+{% extends "core/setup_base.html" %}
+
+{% comment %}
+Step 1 of 3: confirm what registration captured and add what it deliberately did
+not ask for — timezone, address, and the institution code.
+
+The code is editable here and stays editable in Institution Settings until the
+first receipt exists. This is the moment an Owner is most likely to want to change
+it, since they are seeing it for the first time: registration derives it from the
+school name rather than asking (accounts/services.py).
+{% endcomment %}
+
+{% block setup_title %}School details{% endblock %}
+
+{% block setup_content %}
+  <div class="page-header">
+    <div>
+      <h1>Welcome to AdminPilot</h1>
+      <p class="page-header__sub">
+        Your school is approved. Three short screens and you're set up.
+      </p>
+    </div>
+  </div>
+
+  <div class="card">
+    <p class="card__title">School details</p>
+
+    {% include "includes/form_errors.html" %}
+
+    <form method="post" class="form form--wide" novalidate>
+      {% csrf_token %}
+      {% for field in form %}
+        {% include "includes/field.html" %}
+      {% endfor %}
+      <div class="form-actions">
+        <button type="submit" class="btn btn--primary">Save and continue</button>
+      </div>
+    </form>
+  </div>
+{% endblock %}

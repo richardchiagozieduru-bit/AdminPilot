@@ -1,0 +1,119 @@
+{% extends "base_print.html" %}
+
+{% comment %}
+Receipt view with Itemized Breakdown (docs/08_UI_UX.md: /receipts/<id>/).
+{% endcomment %}
+
+{% block title %}Receipt {{ receipt.receipt_number }} · AdminPilot{% endblock %}
+
+{% block actions %}
+  <div class="quick-actions">
+    <button type="button" class="btn btn--primary" onclick="window.print()">Print receipt</button>
+    <a class="btn btn--secondary" href="{% url 'billing:payment_detail' payment.pk %}">Back to payment</a>
+    <a class="btn btn--link" href="{% url 'billing:payment_list' %}">All payments</a>
+  </div>
+{% endblock %}
+
+{% block content %}
+  <div style="text-align:center; margin-bottom:var(--space-5);">
+    <h1 style="margin-bottom:var(--space-1); font-family: var(--font-heading);">{{ institution.name }}</h1>
+    {% if institution.address %}
+      <p style="margin:0; color:var(--color-text-muted, #666);">{{ institution.address }}</p>
+    {% endif %}
+    {% if institution.phone %}
+      <p style="margin:0; color:var(--color-text-muted, #666);">{{ institution.phone }}</p>
+    {% endif %}
+    <p style="margin:var(--space-2) 0 0; font-size:var(--text-sm, 0.875rem); color:var(--color-text-muted, #666);">
+      Institution Code: <strong>{{ institution.code }}</strong>
+    </p>
+  </div>
+
+  <hr style="margin-bottom:var(--space-5); border: 0; border-top: 1px solid var(--color-border);">
+
+  <div style="display:flex; justify-content:space-between; margin-bottom:var(--space-5);">
+    <div>
+      <h2 style="margin:0 0 var(--space-2); font-family: var(--font-heading);">Official Payment Receipt</h2>
+      <p style="margin:0;"><strong>Receipt No:</strong> <span style="font-family: var(--font-mono); font-weight:700;">{{ receipt.receipt_number }}</span></p>
+      <p style="margin:0;"><strong>Date Issued:</strong> {{ receipt.created_at|date:"M j, Y — g:i A" }}</p>
+    </div>
+    <div style="text-align:right;">
+      <p style="margin:0;"><strong>Student:</strong> {{ student.full_name }}</p>
+      <p style="margin:0;"><strong>Admission No:</strong> <span style="font-family: var(--font-mono);">{{ student.admission_number }}</span></p>
+      <p style="margin:0;"><strong>Class:</strong> {{ fee_structure.klass.name }}</p>
+      <p style="margin:0;"><strong>Fee Package:</strong> {{ fee_structure.name }} ({{ fee_structure.term.name }})</p>
+    </div>
+  </div>
+
+  <div class="table-wrap">
+    <table class="table" style="width:100%;">
+      <thead>
+        <tr>
+          <th scope="col" style="text-align:left;">Item Description</th>
+          <th scope="col" style="text-align:right;">Amount Paid</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% if allocations %}
+          {% for alloc in allocations %}
+            <tr>
+              <td>
+                <strong>{{ alloc.fee_item.name }}</strong>
+                <span style="font-size:var(--text-xs); color:var(--color-text-muted); margin-left:8px;">
+                  (Billed: ₦{{ alloc.fee_item.amount }})
+                </span>
+              </td>
+              <td style="text-align:right; font-family: var(--font-mono);">₦{{ alloc.amount }}</td>
+            </tr>
+          {% endfor %}
+        {% else %}
+          <tr>
+            <td>{{ fee_structure.name }} — {{ fee_structure.term.name }}</td>
+            <td style="text-align:right; font-family: var(--font-mono);">₦{{ payment.amount }}</td>
+          </tr>
+        {% endif %}
+      </tbody>
+      <tfoot>
+        <tr style="border-top: 2px solid var(--color-border);">
+          <th scope="row" style="text-align:left; font-size: var(--text-base);">Total Paid in this Transaction:</th>
+          <td style="text-align:right; font-family: var(--font-mono); font-size: var(--text-base); color: var(--color-primary);">
+            <strong>₦{{ payment.amount }}</strong>
+          </td>
+        </tr>
+        {% if remaining_package_balance is not None %}
+          <tr style="background: var(--color-bg-subtle, #f8fafc);">
+            <th scope="row" style="text-align:left; font-weight:600;">Remaining Term Package Balance:</th>
+            <td style="text-align:right; font-family: var(--font-mono); font-weight:700; color: {% if remaining_package_balance > 0 %}var(--color-danger, #d32f2f){% else %}var(--color-success, #16a34a){% endif %};">
+              ₦{{ remaining_package_balance }}
+            </td>
+          </tr>
+        {% endif %}
+      </tfoot>
+    </table>
+  </div>
+
+  <div style="margin-top:var(--space-5); display:grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: var(--space-4);">
+    <div>
+      <p style="margin:0;"><strong>Payment Method:</strong> {{ payment.get_method_display }}</p>
+      <p style="margin:0;"><strong>Payment Date:</strong> {{ payment.payment_date|date:"M j, Y" }}</p>
+    </div>
+    {% if payment.status == 'reversed' %}
+      <div>
+        <p style="margin:0; color:var(--color-danger, #d32f2f);">
+          <strong>STATUS: REVERSED</strong><br>
+          <span style="font-size:var(--text-xs);">Reason: {{ payment.reversal_reason }}</span>
+        </p>
+      </div>
+    {% endif %}
+  </div>
+
+  <div style="margin-top:var(--space-6, 3rem); display:flex; justify-content:space-between; align-items:flex-end;">
+    <div>
+      <p style="margin:0;"><strong>Issued by:</strong> {{ receipt.issued_by.full_name|default:"Authorized Staff" }}</p>
+    </div>
+    <div style="text-align:right; min-width: 200px;">
+      <p style="border-top:1px solid var(--color-border, #ccc); padding-top:var(--space-2); margin:0; text-align:center; font-size:var(--text-sm);">
+        Authorized Signature & Stamp
+      </p>
+    </div>
+  </div>
+{% endblock %}

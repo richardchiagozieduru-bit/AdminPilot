@@ -1,0 +1,25 @@
+{% extends "base_public.html" %}
+
+{% block title %}Register your school · AdminPilot{% endblock %}
+{% block lede %}Register your school. We review every application before activating it.{% endblock %}
+
+{% block content %}
+  <h1>Create your school's account</h1>
+
+  {% include "includes/form_errors.html" %}
+
+  <form method="post" class="form" novalidate>
+    {% csrf_token %}
+    {% for field in form %}
+      {% include "includes/field.html" %}
+    {% endfor %}
+
+    <div class="form-actions">
+      <button type="submit" class="btn btn--primary">Submit for review</button>
+    </div>
+  </form>
+
+  <p class="public__footer">
+    Already registered? <a href="{% url 'accounts:login' %}">Sign in</a>
+  </p>
+{% endblock %}

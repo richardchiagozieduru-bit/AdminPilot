@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+
+{% comment %}
+One template for add and edit — the fields are identical. `student` is only in
+the context on the edit view (StudentUpdateView's context_object_name), which is
+what tells the two apart, the same way class_form.html uses `klass`.
+
+The required/optional split (docs/03_Views_and_Endpoints.md) is not hardcoded
+here: it comes from the form's own required_fields()/optional_fields(), declared
+once on StudentForm, so the screen and the form can't disagree about which is
+which. There is no Bursar variant — a Bursar has no manage access to students,
+so never reaches this form.
+{% endcomment %}
+
+{% block title %}{% if student %}Edit {{ student.full_name }}{% else %}Add student{% endif %} · AdminPilot{% endblock %}
+
+{% block content %}
+  <div class="page-header">
+    <div>
+      <h1>{% if student %}Edit {{ student.full_name }}{% else %}Add a student{% endif %}</h1>
+      {% if student %}
+        <p class="page-header__sub">
+          Admission number {{ student.admission_number }} · changing the class
+          records a new enrolment rather than overwriting the current one.
+        </p>
+      {% else %}
+        <p class="page-header__sub">
+          A new student is enrolled into your current term.
+          {% if current_term %}That's {{ current_term.session.name }} — {{ current_term.name }}.{% endif %}
+        </p>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="card">
+    {% include "includes/form_errors.html" %}
+
+    <form method="post" class="form" novalidate>
+      {% csrf_token %}
+
+      <h2 class="card__title">Required information</h2>
+      {% for field in form.required_fields %}
+        {% include "includes/field.html" %}
+      {% endfor %}
+
+      <h2 class="card__title" style="margin-top:var(--space-5);">Optional information</h2>
+      {% for field in form.optional_fields %}
+        {% include "includes/field.html" %}
+      {% endfor %}
+
+      <div class="form-actions">
+        <button type="submit" class="btn btn--primary">
+          {% if student %}Save changes{% else %}Add student{% endif %}
+        </button>
+        {% if student %}
+          <a class="btn btn--secondary" href="{% url 'students:detail' student.pk %}">Cancel</a>
+        {% else %}
+          <a class="btn btn--secondary" href="{% url 'students:list' %}">Cancel</a>
+        {% endif %}
+      </div>
+    </form>
+  </div>
+{% endblock %}

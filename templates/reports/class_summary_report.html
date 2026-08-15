@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+
+{% comment %}
+Class Payment Summary Report (docs/03_Views_and_Endpoints.md: /reports/class-summary/).
+{% endcomment %}
+
+{% block title %}Class Summary Report · AdminPilot{% endblock %}
+
+{% block content %}
+  <div class="page-header">
+    <div>
+      <h1>Class Summary Report</h1>
+      <p class="page-header__sub">
+        Fee summary aggregated by class
+      </p>
+    </div>
+    <div class="quick-actions">
+      <a class="btn btn--secondary"
+         href="{% url 'reports:class_summary_export' %}?class_id={{ selected_class_id }}&term_id={{ selected_term_id }}">
+        Export CSV
+      </a>
+      <a class="btn btn--link" href="{% url 'reports:hub' %}">Back to Hub</a>
+    </div>
+  </div>
+
+  <div class="card">
+    <form method="get" class="form form--wide" style="display:flex; flex-wrap:wrap; gap:var(--space-4); align-items:flex-end;">
+      <div class="field" style="flex:1 1 180px; margin-bottom:0;">
+        <label class="field__label" for="class_id">Class</label>
+        <select name="class_id" id="class_id">
+          <option value="">All classes</option>
+          {% for klass in classes %}
+            <option value="{{ klass.pk }}"{% if selected_class_id == klass.pk|stringformat:"s" %} selected{% endif %}>{{ klass.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field" style="flex:1 1 180px; margin-bottom:0;">
+        <label class="field__label" for="term_id">Term</label>
+        <select name="term_id" id="term_id">
+          <option value="">All terms</option>
+          {% for term in terms %}
+            <option value="{{ term.pk }}"{% if selected_term_id == term.pk|stringformat:"s" %} selected{% endif %}>{{ term }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="form-actions" style="margin-top:0;">
+        <button type="submit" class="btn btn--primary">Filter</button>
+        <a class="btn btn--link" href="{% url 'reports:class_summary' %}">Reset</a>
+      </div>
+    </form>
+  </div>
+
+  <div class="stat-grid">
+    <div class="stat">
+      <p class="stat__label">Total Billed</p>
+      <p class="stat__value stat__value--money">{{ report.grand_billed }}</p>
+    </div>
+    <div class="stat">
+      <p class="stat__label">Total Collected</p>
+      <p class="stat__value stat__value--money">{{ report.grand_collected }}</p>
+    </div>
+    <div class="stat">
+      <p class="stat__label">Total Outstanding</p>
+      <p class="stat__value stat__value--money">{{ report.grand_outstanding }}</p>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="table-wrap">
+      <table class="table">
+        <thead>
+          <tr>
+            <th scope="col">Class</th>
+            <th scope="col" style="text-align:right;">Students</th>
+            <th scope="col" style="text-align:right;">Total Billed</th>
+            <th scope="col" style="text-align:right;">Collected</th>
+            <th scope="col" style="text-align:right;">Outstanding</th>
+            <th scope="col" style="text-align:right;">Fully Paid Students</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in report.summaries %}
+            <tr>
+              <td><strong>{{ row.class.name }}</strong></td>
+              <td style="text-align:right;">{{ row.student_count }}</td>
+              <td style="text-align:right;">{{ row.total_billed }}</td>
+              <td style="text-align:right;">{{ row.total_collected }}</td>
+              <td style="text-align:right;">{{ row.total_outstanding }}</td>
+              <td style="text-align:right;">{{ row.fully_paid_count }}</td>
+            </tr>
+          {% empty %}
+            <tr>
+              <td colspan="6" class="table__empty">No class summaries available.</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+{% endblock %}

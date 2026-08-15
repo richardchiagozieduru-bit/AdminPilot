@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+
+{% comment %}
+Payment detail (docs/03_Views_and_Endpoints.md: /payments/<id>/).
+{% endcomment %}
+
+{% block title %}Payment — {{ student.full_name }} · AdminPilot{% endblock %}
+
+{% block content %}
+  <div class="page-header">
+    <div>
+      <h1>Payment detail</h1>
+      <p class="page-header__sub">
+        {{ student.full_name }} ({{ student.admission_number }})
+      </p>
+    </div>
+    <div class="quick-actions">
+      {% if can_manage and payment.status == 'active' %}
+        <a class="btn btn--secondary" href="{% url 'billing:payment_reverse' payment.pk %}">Reverse payment</a>
+      {% endif %}
+      {% if payment.receipt %}
+        <a class="btn btn--secondary" href="{% url 'billing:receipt_detail' payment.receipt.pk %}">View receipt</a>
+      {% endif %}
+    </div>
+  </div>
+
+  {% if payment.status == 'reversed' %}
+    <div class="card" style="border-left: 3px solid var(--color-danger, #d32f2f);">
+      <p>
+        <strong>This payment has been reversed.</strong><br>
+        Reason: {{ payment.reversal_reason }}<br>
+        Reversed at: {{ payment.reversed_at|date:"M j, Y H:i" }}
+      </p>
+    </div>
+  {% endif %}
+
+  <div class="card">
+    <h2 class="card__title">Payment information</h2>
+    <div class="table-wrap">
+      <table class="table">
+        <tbody>
+          <tr>
+            <th scope="row" style="width:38%;">Student</th>
+            <td>
+              <a href="{% url 'students:detail' student.pk %}">{{ student.full_name }}</a>
+              ({{ student.admission_number }})
+            </td>
+          </tr>
+          <tr>
+            <th scope="row">Fee structure</th>
+            <td>
+              <a href="{% url 'billing:fee_structure_detail' payment.assignment.fee_structure.pk %}">
+                {{ payment.assignment.fee_structure.name }}
+              </a>
+              · {{ payment.assignment.fee_structure.klass.name }}
+            </td>
+          </tr>
+          <tr>
+            <th scope="row">Amount</th>
+            <td>{{ payment.amount }}</td>
+          </tr>
+          <tr>
+            <th scope="row">Payment date</th>
+            <td>{{ payment.payment_date|date:"M j, Y" }}</td>
+          </tr>
+          <tr>
+            <th scope="row">Method</th>
+            <td>{{ payment.get_method_display }}</td>
+          </tr>
+          <tr>
+            <th scope="row">Status</th>
+            <td>
+              {% if payment.status == 'active' %}
+                <span class="badge badge--success">Active</span>
+              {% else %}
+                <span class="badge badge--danger">Reversed</span>
+              {% endif %}
+            </td>
+          </tr>
+          <tr>
+            <th scope="row">Receipt</th>
+            <td>
+              {% if payment.receipt %}
+                <a href="{% url 'billing:receipt_detail' payment.receipt.pk %}">{{ payment.receipt.receipt_number }}</a>
+              {% else %}
+                —
+              {% endif %}
+            </td>
+          </tr>
+          <tr>
+            <th scope="row">Recorded by</th>
+            <td>{{ payment.recorded_by.full_name|default:"—" }}</td>
+          </tr>
+          <tr>
+            <th scope="row">Recorded at</th>
+            <td>{{ payment.created_at|date:"M j, Y H:i" }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+{% endblock %}

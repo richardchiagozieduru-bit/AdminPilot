@@ -1,0 +1,109 @@
+{% extends "base.html" %}
+
+{% comment %}
+Bulk import — step 2, the staged preview (docs/03_Views_and_Endpoints.md).
+
+Rows are grouped by worksheet and tagged valid or error-with-reason. Nothing has
+been written to the students table yet: these are BulkImportRow staging rows. A
+manager can untick valid rows to leave them out; error rows have no checkbox
+because they can't be imported until they're fixed and the file re-uploaded.
+
+POST hands the ticked rows to services.commit_import — the one place students
+are created, in a single transaction, with one summarizing audit entry, clearing
+the staging rows afterward.
+{% endcomment %}
+
+{% block title %}Review import · AdminPilot{% endblock %}
+
+{% block content %}
+  <div class="page-header">
+    <div>
+      <h1>Review import</h1>
+      <p class="page-header__sub">
+        {{ batch.session.name }} — {{ batch.term.name }} ·
+        {{ valid_count }} ready · {{ error_count }} with problems · {{ total_count }} in total
+      </p>
+    </div>
+    <a class="btn btn--link" href="{% url 'students:import' %}">Upload a different file</a>
+  </div>
+
+  {% if total_count == 0 %}
+    <div class="card">
+      <p class="table__empty">
+        No student rows were found in that file. Check you filled in rows under
+        the class worksheets, then
+        <a href="{% url 'students:import' %}">upload it again</a>.
+      </p>
+    </div>
+  {% else %}
+    <form method="post">
+      {% csrf_token %}
+
+      {% regroup rows by sheet_name as sheet_groups %}
+      {% for group in sheet_groups %}
+        <div class="card">
+          <h2 class="card__title">{{ group.grouper }}</h2>
+          <div class="table-wrap">
+            <table class="table">
+              <thead>
+                <tr>
+                  <th scope="col"><span class="visually-hidden">Include</span></th>
+                  <th scope="col">Row</th>
+                  <th scope="col">Name</th>
+                  <th scope="col">Gender</th>
+                  <th scope="col">Date of birth</th>
+                  <th scope="col">Guardian</th>
+                  <th scope="col">Phone</th>
+                  <th scope="col">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in group.list %}
+                  <tr>
+                    <td>
+                      {% if row.validation_status == 'valid' %}
+                        <input type="checkbox" name="rows" value="{{ row.pk }}"
+                               {% if row.selected_for_commit %}checked{% endif %}
+                               style="width:auto;"
+                               aria-label="Include {{ row.first_name }} {{ row.last_name }}">
+                      {% endif %}
+                    </td>
+                    <td>{{ row.row_number }}</td>
+                    <td>
+                      {{ row.first_name }}{% if row.middle_name %} {{ row.middle_name }}{% endif %} {{ row.last_name }}
+                    </td>
+                    <td>{{ row.get_gender_display|default:"—" }}</td>
+                    <td>{{ row.date_of_birth|date:"M j, Y"|default:"—" }}</td>
+                    <td>{{ row.guardian_name|default:"—" }}</td>
+                    <td>{{ row.guardian_phone|default:"—" }}</td>
+                    <td>
+                      {% if row.validation_status == 'valid' %}
+                        <span class="badge badge--success">Ready</span>
+                      {% else %}
+                        <span class="badge badge--danger">Problem</span>
+                        <div class="field__errors">{{ row.error_reason }}</div>
+                      {% endif %}
+                    </td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      {% endfor %}
+
+      <div class="form-actions">
+        <button type="submit" class="btn btn--primary"{% if valid_count == 0 %} disabled{% endif %}>
+          Import selected students
+        </button>
+        <a class="btn btn--secondary" href="{% url 'students:list' %}">Cancel</a>
+      </div>
+      {% if error_count %}
+        <p class="field__help">
+          Rows marked “Problem” can't be imported. Fix them in the spreadsheet
+          and upload it again — the ready rows can be imported now regardless.
+        </p>
+      {% endif %}
+    </form>
+  {% endif %}
+{% endblock %}

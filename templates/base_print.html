@@ -1,0 +1,31 @@
+{% comment %}
+Print-friendly receipt shell (docs/08_UI_UX.md: base_print.html).
+
+No sidebar, no nav — just the receipt body. The Print button calls
+window.print(); @media print CSS hides even the button itself.
+{% endcomment %}
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Receipt · AdminPilot{% endblock %}</title>
+  <link rel="stylesheet" href="{% static 'css/tokens.css' %}">
+  <link rel="stylesheet" href="{% static 'css/app.css' %}">
+  <style>
+    body { max-width: 800px; margin: 2rem auto; padding: 0 1rem; }
+    .no-print { margin-bottom: var(--space-5); }
+    @media print {
+      .no-print { display: none !important; }
+      body { margin: 0; padding: 0; }
+    }
+  </style>
+</head>
+<body>
+  <div class="no-print">
+    {% block actions %}{% endblock %}
+  </div>
+  {% block content %}{% endblock %}
+</body>
+</html>

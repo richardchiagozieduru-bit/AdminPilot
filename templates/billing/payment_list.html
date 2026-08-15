@@ -1,0 +1,133 @@
+{% extends "base.html" %}
+
+{% comment %}
+Payment list (docs/03_Views_and_Endpoints.md: /payments/?date_from=&date_to=&method=&status=).
+{% endcomment %}
+
+{% block title %}Payments · AdminPilot{% endblock %}
+
+{% block content %}
+  <div class="page-header">
+    <div>
+      <h1>Payments</h1>
+      <p class="page-header__sub">
+        {% if is_paginated %}
+          {{ page_obj.paginator.count }} payments
+        {% else %}
+          {{ payments|length }} payments
+        {% endif %}
+      </p>
+    </div>
+    {% if can_manage %}
+      <div class="quick-actions">
+        <a class="btn btn--primary" href="{% url 'billing:payment_create' %}">Record payment</a>
+      </div>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <form method="get" class="form form--wide" role="search"
+          style="display:flex; flex-wrap:wrap; gap:var(--space-4); align-items:flex-end;">
+      <div class="field" style="flex:1 1 140px; margin-bottom:0;">
+        <label class="field__label" for="date_from">From</label>
+        <input type="date" name="date_from" id="date_from" value="{{ selected_date_from }}">
+      </div>
+      <div class="field" style="flex:1 1 140px; margin-bottom:0;">
+        <label class="field__label" for="date_to">To</label>
+        <input type="date" name="date_to" id="date_to" value="{{ selected_date_to }}">
+      </div>
+      <div class="field" style="flex:1 1 140px; margin-bottom:0;">
+        <label class="field__label" for="method">Method</label>
+        <select name="method" id="method">
+          <option value="">All methods</option>
+          {% for value, label in method_choices %}
+            <option value="{{ value }}"{% if selected_method == value %} selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field" style="flex:1 1 140px; margin-bottom:0;">
+        <label class="field__label" for="status">Status</label>
+        <select name="status" id="status">
+          <option value="">All</option>
+          {% for value, label in status_choices %}
+            <option value="{{ value }}"{% if selected_status == value %} selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="form-actions" style="margin-top:0;">
+        <button type="submit" class="btn btn--primary">Filter</button>
+        <a class="btn btn--link" href="{% url 'billing:payment_list' %}">Clear</a>
+      </div>
+    </form>
+  </div>
+
+  <div class="card">
+    <div class="table-wrap">
+      <table class="table">
+        <thead>
+          <tr>
+            <th scope="col">Student</th>
+            <th scope="col">Fee</th>
+            <th scope="col">Date</th>
+            <th scope="col" style="text-align:right;">Amount</th>
+            <th scope="col">Method</th>
+            <th scope="col">Receipt</th>
+            <th scope="col">Status</th>
+            <th scope="col"><span class="visually-hidden">Actions</span></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for payment in payments %}
+            <tr>
+              <td><strong>{{ payment.assignment.student.full_name }}</strong></td>
+              <td>{{ payment.assignment.fee_structure.name }}</td>
+              <td>{{ payment.payment_date|date:"M j, Y" }}</td>
+              <td style="text-align:right;">{{ payment.amount }}</td>
+              <td>{{ payment.get_method_display }}</td>
+              <td>
+                {% if payment.receipt %}
+                  <a href="{% url 'billing:receipt_detail' payment.receipt.pk %}">{{ payment.receipt.receipt_number }}</a>
+                {% else %}
+                  —
+                {% endif %}
+              </td>
+              <td>
+                {% if payment.status == 'active' %}
+                  <span class="badge badge--success">Active</span>
+                {% else %}
+                  <span class="badge badge--danger">Reversed</span>
+                {% endif %}
+              </td>
+              <td>
+                <a class="btn btn--link" href="{% url 'billing:payment_detail' payment.pk %}">View</a>
+              </td>
+            </tr>
+          {% empty %}
+            <tr>
+              <td colspan="8" class="table__empty">
+                No payments recorded yet.
+                {% if can_manage %}
+                  <a href="{% url 'billing:payment_create' %}">Record one.</a>
+                {% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  {% if is_paginated %}
+    <nav class="quick-actions" aria-label="Pagination">
+      {% if page_obj.has_previous %}
+        <a class="btn btn--secondary"
+           href="?page={{ page_obj.previous_page_number }}&date_from={{ selected_date_from|urlencode }}&date_to={{ selected_date_to|urlencode }}&method={{ selected_method|urlencode }}&status={{ selected_status|urlencode }}">Previous</a>
+      {% endif %}
+      <span class="page-header__sub">Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
+      {% if page_obj.has_next %}
+        <a class="btn btn--secondary"
+           href="?page={{ page_obj.next_page_number }}&date_from={{ selected_date_from|urlencode }}&date_to={{ selected_date_to|urlencode }}&method={{ selected_method|urlencode }}&status={{ selected_status|urlencode }}">Next</a>
+      {% endif %}
+    </nav>
+  {% endif %}
+{% endblock %}

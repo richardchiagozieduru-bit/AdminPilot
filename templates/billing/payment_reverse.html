@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+
+{% comment %}
+Payment reversal form — reason required (docs/04_Permission_Matrix.md).
+{% endcomment %}
+
+{% block title %}Reverse payment · AdminPilot{% endblock %}
+
+{% block content %}
+  <div class="page-header">
+    <div>
+      <h1>Reverse payment</h1>
+      <p class="page-header__sub">
+        {{ student.full_name }} · {{ payment.amount }} on {{ payment.payment_date|date:"M j, Y" }}
+        {% if payment.receipt %}· receipt {{ payment.receipt.receipt_number }}{% endif %}
+      </p>
+    </div>
+  </div>
+
+  <div class="card" style="border-left: 3px solid var(--color-danger, #d32f2f);">
+    <p>
+      <strong>This action cannot be undone.</strong>
+      Reversing this payment will restore the student's outstanding balance.
+      {% if payment.credit_transactions.exists %}
+        Any overpayment credit generated from this payment will also be reversed.
+      {% endif %}
+    </p>
+  </div>
+
+  <div class="card">
+    {% include "includes/form_errors.html" %}
+
+    <form method="post" class="form" novalidate>
+      {% csrf_token %}
+
+      {% for field in form %}
+        {% include "includes/field.html" %}
+      {% endfor %}
+
+      <div class="form-actions">
+        <button type="submit" class="btn btn--danger">Reverse payment</button>
+        <a class="btn btn--secondary" href="{% url 'billing:payment_detail' payment.pk %}">Cancel</a>
+      </div>
+    </form>
+  </div>
+{% endblock %}

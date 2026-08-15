@@ -1,0 +1,27 @@
+{% extends "base_public.html" %}
+
+{% comment %}
+Super Admin sign-in. Reuses the public shell (it has no institution nav to
+leak) but deliberately links to no institution URL — not even /login/. CR-004
+keeps the two paths separate, and cross-linking them would undo that in the
+one place a person actually navigates.
+{% endcomment %}
+
+{% block title %}Platform sign in · AdminPilot{% endblock %}
+{% block lede %}Platform administration.{% endblock %}
+
+{% block content %}
+  <h1>Platform sign in</h1>
+
+  {% include "includes/form_errors.html" %}
+
+  <form method="post" class="form" novalidate>
+    {% csrf_token %}
+    {% for field in form %}
+      {% include "includes/field.html" %}
+    {% endfor %}
+    <div class="form-actions">
+      <button type="submit" class="btn btn--primary">Sign in</button>
+    </div>
+  </form>
+{% endblock %}

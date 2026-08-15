@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+
+{% comment %}
+Fee structure detail — items, lock status, and links to assignments and edit.
+
+docs/08_UI_UX.md: once locked, a banner explains why and links to the
+per-student adjustment view. The edit link disappears.
+{% endcomment %}
+
+{% block title %}{{ fee_structure.name }} · AdminPilot{% endblock %}
+
+{% block content %}
+  <div class="page-header">
+    <div>
+      <h1>{{ fee_structure.name }}</h1>
+      <p class="page-header__sub">
+        {{ fee_structure.klass.name }} · {{ fee_structure.session.name }} — {{ fee_structure.term.name }}
+        ·
+        {% if fee_structure.locked %}
+          <span class="badge badge--muted">Locked</span>
+        {% else %}
+          <span class="badge badge--success">Open</span>
+        {% endif %}
+      </p>
+    </div>
+    {% if can_manage %}
+      <div class="quick-actions">
+        {% if not fee_structure.locked %}
+          <a class="btn btn--secondary" href="{% url 'billing:fee_structure_edit' fee_structure.pk %}">Edit</a>
+        {% endif %}
+        <a class="btn btn--secondary" href="{% url 'billing:fee_assignment_list' fee_structure.pk %}">
+          Student assignments ({{ assignment_count }})
+        </a>
+        <a class="btn btn--danger" href="{% url 'billing:fee_structure_delete' fee_structure.pk %}" style="background:var(--color-danger-50, #fef2f2); color:var(--color-danger, #dc2626); border-color:var(--color-danger-200, #fecaca);">Delete</a>
+      </div>
+    {% endif %}
+  </div>
+
+  {% if fee_structure.locked %}
+    <div class="card" style="border-left: 3px solid var(--color-warning, #e6a817);">
+      <p>
+        <strong>This fee structure is locked</strong> because at least one payment
+        has been recorded against it. To make a correction, adjust
+        <a href="{% url 'billing:fee_assignment_list' fee_structure.pk %}">individual student assignments</a>
+        instead.
+      </p>
+    </div>
+  {% endif %}
+
+  <div class="card">
+    <h2 class="card__title">Fee items</h2>
+    <div class="table-wrap">
+      <table class="table">
+        <thead>
+          <tr>
+            <th scope="col">Item</th>
+            <th scope="col" style="text-align:right;">Amount</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for item in items %}
+            <tr>
+              <td>{{ item.name }}</td>
+              <td style="text-align:right;">{{ item.amount }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+        <tfoot>
+          <tr>
+            <th scope="row">Total</th>
+            <td style="text-align:right;"><strong>{{ fee_structure.total_amount }}</strong></td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  </div>
+{% endblock %}

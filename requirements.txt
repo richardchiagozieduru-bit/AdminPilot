@@ -1,0 +1,11 @@
+# AdminPilot runtime dependencies. Python 3.12.
+# docs/01_Architecture.md ADR-002 — fixed stack, do not substitute.
+
+Django==6.1
+mssql-django==1.8.0
+pyodbc==5.3.0
+python-dotenv==1.2.2
+
+# Bulk student import (docs/02_Database.md — multi-worksheet .xlsx template and
+# upload parsing). Read/write .xlsx only; no other Office format is handled.
+openpyxl==3.1.5

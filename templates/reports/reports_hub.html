@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+
+{% comment %}
+Reports Hub (docs/03_Views_and_Endpoints.md: /reports/).
+{% endcomment %}
+
+{% block title %}Reports Hub · AdminPilot{% endblock %}
+
+{% block content %}
+  <div class="page-header">
+    <div>
+      <h1>Reports Hub</h1>
+      <p class="page-header__sub">
+        Financial, student balance, and class payment summaries for your institution.
+      </p>
+    </div>
+  </div>
+
+  <div class="stat-grid" style="grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));">
+    <div class="card">
+      <h2 class="card__title">Income Report</h2>
+      <p>Analyze revenue collected by payment method across daily, weekly, monthly, or term periods.</p>
+      <div style="margin-top:var(--space-4);">
+        <a class="btn btn--primary" href="{% url 'reports:income' %}">View Income Report</a>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2 class="card__title">Outstanding Fees Report</h2>
+      <p>Identify all student assignments with an outstanding balance, filterable by class and term.</p>
+      <div style="margin-top:var(--space-4);">
+        <a class="btn btn--primary" href="{% url 'reports:outstanding_fees' %}">View Outstanding Fees</a>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2 class="card__title">Class Summary Report</h2>
+      <p>High-level billing overview per class: student count, total billed, collected, and outstanding.</p>
+      <div style="margin-top:var(--space-4);">
+        <a class="btn btn--primary" href="{% url 'reports:class_summary' %}">View Class Summary</a>
+      </div>
+    </div>
+  </div>
+
+  {% if can_export %}
+    <div class="card" style="margin-top:var(--space-5);">
+      <h2 class="card__title">Data Export (Owner Only)</h2>
+      <p>Download full CSV exports of institution records for offline backup or external reporting.</p>
+      <div class="quick-actions" style="margin-top:var(--space-3);">
+        <a class="btn btn--secondary" href="{% url 'reports:export_students' %}">Export Full Student Roster (CSV)</a>
+        <a class="btn btn--secondary" href="{% url 'reports:export_payments' %}">Export Full Payment History (CSV)</a>
+      </div>
+    </div>
+  {% endif %}
+{% endblock %}

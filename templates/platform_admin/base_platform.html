@@ -1,0 +1,46 @@
+{% comment %}
+Super Admin shell.
+
+Extends nothing from base.html on purpose: that template renders an
+institution sidebar from the permission matrix, and a Super Admin has no
+institution and no role in that matrix. Sharing a shell would mean a platform
+page rendering institution nav code — the exact code path CR-004 removes.
+{% endcomment %}
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}AdminPilot Platform{% endblock %}</title>
+  <link rel="stylesheet" href="{% static 'css/tokens.css' %}">
+  <link rel="stylesheet" href="{% static 'css/app.css' %}">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="topnav">
+    <a class="topnav__brand" href="{% url 'platform_admin:institution_list' %}">AdminPilot</a>
+    <span class="topnav__institution">Platform administration</span>
+    <div class="topnav__user">
+      <span>{{ request.user.email }}</span>
+      <form method="post" action="{% url 'platform_admin:logout' %}">
+        {% csrf_token %}
+        <button type="submit" class="btn btn--link" style="color: inherit;">Sign out</button>
+      </form>
+    </div>
+  </header>
+
+  <main class="content" id="main">
+    {% if messages %}
+      <ul class="messages">
+        {% for message in messages %}
+          <li class="message message--{{ message.tags|default:'info' }}">{{ message }}</li>
+        {% endfor %}
+      </ul>
+    {% endif %}
+
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>

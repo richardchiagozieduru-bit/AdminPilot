@@ -1,0 +1,50 @@
+{% extends "core/setup_base.html" %}
+
+{% comment %}
+Step 2 of 3: the first session and its first term, on one screen and in one
+transaction.
+
+Two forms, one submit button, on purpose. A session with no term blocks
+everything downstream — enrolments and fee structures both reference a term — so
+the wizard never produces one. See InstitutionSetupWizardView.save_academic.
+{% endcomment %}
+
+{% block setup_title %}Session and term{% endblock %}
+
+{% block setup_content %}
+  <div class="page-header">
+    <div>
+      <h1>Your first session and term</h1>
+      <p class="page-header__sub">
+        Both are set as current, so the dashboard and new records know where they
+        belong. You can add more later under Academic Structure.
+      </p>
+    </div>
+  </div>
+
+  <form method="post" class="form form--wide" novalidate>
+    {% csrf_token %}
+
+    <div class="card">
+      <p class="card__title">Session</p>
+      {% include "includes/form_errors.html" %}
+      {% for field in form %}
+        {% include "includes/field.html" %}
+      {% endfor %}
+    </div>
+
+    <div class="card">
+      <p class="card__title">First term of this session</p>
+      {% with form=term_form %}
+        {% include "includes/form_errors.html" %}
+        {% for field in form %}
+          {% include "includes/field.html" %}
+        {% endfor %}
+      {% endwith %}
+    </div>
+
+    <div class="form-actions">
+      <button type="submit" class="btn btn--primary">Save and continue</button>
+    </div>
+  </form>
+{% endblock %}

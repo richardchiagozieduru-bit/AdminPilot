@@ -1,0 +1,190 @@
+{% extends "base.html" %}
+
+{% comment %}
+Main Dashboard (docs/08_UI_UX.md & Modern Redesign):
+Greeting, modern KPI stat widgets with icons, quick actions bar, recent payments, and activity timeline.
+{% endcomment %}
+
+{% block title %}Dashboard · AdminPilot{% endblock %}
+
+{% block content %}
+  <div class="page-header">
+    <div>
+      <h1>{{ greeting }}</h1>
+      <p class="page-header__sub">
+        {{ today|date:"l, j F Y" }}
+        {% if current_term %} · <span class="badge badge--info">{{ current_term.session.name }} — {{ current_term.name }}</span>
+        {% else %} · <span class="badge badge--warning">No current term set</span>{% endif %}
+      </p>
+    </div>
+    <div class="quick-actions">
+      {% if can_manage %}
+        <a class="btn btn--primary" href="{% url 'billing:payment_create' %}">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+          Record payment
+        </a>
+        <a class="btn btn--secondary" href="{% url 'students:add' %}">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" x2="19" y1="8" y2="14"/><line x1="22" x2="16" y1="11" y2="11"/></svg>
+          Add student
+        </a>
+      {% endif %}
+      <a class="btn btn--secondary" href="{% url 'billing:fee_structure_list' %}">Fee structures</a>
+    </div>
+  </div>
+
+  {% if not current_term %}
+    <div class="card" style="border-left: 4px solid var(--color-warning);">
+      <p class="card__title" style="color:var(--color-warning);">No current term set</p>
+      <p>
+        Fee structures and student enrolments are both tracked against an active academic term. Set your current term to begin managing fees.
+      </p>
+      <p class="quick-actions" style="margin-top:var(--space-3);">
+        <a class="btn btn--primary" href="{% url 'academic:structure' %}">Set the current term</a>
+      </p>
+    </div>
+  {% endif %}
+
+  <div class="stat-grid">
+    {% if student_count is not None %}
+      <div class="stat">
+        <div class="stat__header">
+          <span class="stat__label">Total Students</span>
+          <div class="stat__icon" style="background:var(--color-brand-light); color:var(--color-brand);">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          </div>
+        </div>
+        <p class="stat__value">{{ student_count }}</p>
+      </div>
+    {% endif %}
+
+    {% if class_count is not None %}
+      <div class="stat">
+        <div class="stat__header">
+          <span class="stat__label">Active Classes</span>
+          <div class="stat__icon" style="background:var(--color-info-bg); color:var(--color-info);">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1-2.5-2.5Z"/><path d="M6 6h10M6 10h10"/></svg>
+          </div>
+        </div>
+        <p class="stat__value">{{ class_count }}</p>
+      </div>
+    {% endif %}
+
+    {% if financials_available %}
+      <div class="stat">
+        <div class="stat__header">
+          <span class="stat__label">Fees Due (This Term)</span>
+          <div class="stat__icon" style="background:var(--color-brand-light); color:var(--color-brand);">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="20" height="14" x="2" y="5" rx="2"/><line x1="2" x2="22" y1="10" y2="10"/></svg>
+          </div>
+        </div>
+        <p class="stat__value stat__value--money">{{ fees_due }}</p>
+      </div>
+
+      <div class="stat">
+        <div class="stat__header">
+          <span class="stat__label">Collected (This Term)</span>
+          <div class="stat__icon" style="background:var(--color-success-bg); color:var(--color-success);">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+          </div>
+        </div>
+        <p class="stat__value stat__value--money" style="color:var(--color-success);">{{ fees_collected }}</p>
+      </div>
+
+      <div class="stat">
+        <div class="stat__header">
+          <span class="stat__label">Received Today</span>
+          <div class="stat__icon" style="background:var(--color-success-bg); color:var(--color-success);">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 14 14"/></svg>
+          </div>
+        </div>
+        <p class="stat__value stat__value--money">{{ received_today }}</p>
+      </div>
+
+      <div class="stat">
+        <div class="stat__header">
+          <span class="stat__label">Action Required</span>
+          <div class="stat__icon" style="background:var(--color-warning-bg); color:var(--color-warning);">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" x2="12" y1="9" y2="13"/><line x1="12" x2="12.01" y1="17"/></svg>
+          </div>
+        </div>
+        <p class="stat__value" style="{% if action_required_count > 0 %}color:var(--color-warning);{% endif %}">{{ action_required_count }}</p>
+      </div>
+    {% endif %}
+  </div>
+
+  {% if financials_available and recent_payments %}
+    <div class="card">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:var(--space-4);">
+        <h2 class="card__title" style="margin:0;">Recent payments</h2>
+        <a class="btn btn--link" href="{% url 'billing:payment_list' %}">View all payments →</a>
+      </div>
+      <div class="table-wrap">
+        <table class="table">
+          <thead>
+            <tr>
+              <th scope="col">Date</th>
+              <th scope="col">Student</th>
+              <th scope="col">Fee Structure</th>
+              <th scope="col" style="text-align:right;">Amount</th>
+              <th scope="col">Receipt</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for p in recent_payments %}
+              <tr>
+                <td>{{ p.payment_date|date:"M j, Y" }}</td>
+                <td>
+                  <strong><a href="{% url 'students:detail' p.assignment.student.pk %}">{{ p.assignment.student.full_name }}</a></strong>
+                </td>
+                <td>{{ p.assignment.fee_structure.name }}</td>
+                <td style="text-align:right; font-family:var(--font-mono); font-weight:var(--weight-semibold); color:var(--color-success);">
+                  {{ p.amount }}
+                </td>
+                <td>
+                  {% if p.receipt %}
+                    <a class="badge badge--info" href="{% url 'billing:receipt_detail' p.receipt.pk %}">{{ p.receipt.receipt_number }}</a>
+                  {% else %}
+                    —
+                  {% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  {% endif %}
+
+  {% if request.user.is_owner %}
+    <div class="card">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:var(--space-4);">
+        <h2 class="card__title" style="margin:0;">Recent institutional activity</h2>
+        <a class="btn btn--link" href="{% url 'core:audit_log' %}">View full audit log →</a>
+      </div>
+      {% if recent_activity %}
+        <div class="table-wrap">
+          <table class="table">
+            <thead>
+              <tr>
+                <th scope="col">When</th>
+                <th scope="col">Actor</th>
+                <th scope="col">Action Details</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for entry in recent_activity %}
+                <tr>
+                  <td>{{ entry.created_at|date:"j M, H:i" }}</td>
+                  <td><strong>{{ entry.actor.full_name|default:"System" }}</strong></td>
+                  <td>{{ entry.summary }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% else %}
+        <p class="table__empty">No activity recorded yet.</p>
+      {% endif %}
+    </div>
+  {% endif %}
+{% endblock %}

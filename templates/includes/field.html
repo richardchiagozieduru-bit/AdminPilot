@@ -1,0 +1,24 @@
+{% comment %}
+One form field: label, widget, errors, help text.
+
+Included rather than repeated so every form in the app marks required fields
+and wires aria-describedby the same way. Django's own {{ form.as_p }} does not
+set aria-invalid, and these screens are the whole product.
+{% endcomment %}
+<div class="field">
+  <label class="field__label" for="{{ field.id_for_label }}">
+    {{ field.label }}{% if field.field.required %} <span class="field__required" aria-hidden="true">*</span><span class="visually-hidden">(required)</span>{% endif %}
+  </label>
+
+  {{ field }}
+
+  {% if field.errors %}
+    <ul class="field__errors" id="{{ field.auto_id }}_errors">
+      {% for error in field.errors %}<li>{{ error }}</li>{% endfor %}
+    </ul>
+  {% endif %}
+
+  {% if field.help_text %}
+    <p class="field__help" id="{{ field.auto_id }}_help">{{ field.help_text }}</p>
+  {% endif %}
+</div>

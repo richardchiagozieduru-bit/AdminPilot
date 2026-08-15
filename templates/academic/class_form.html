@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+
+{% comment %}
+One template for create and edit — the fields are identical, and two templates
+would drift. `klass` is only in the context on the edit view (ClassUpdateView's
+context_object_name), which is what distinguishes them.
+{% endcomment %}
+
+{% block title %}{% if klass %}Edit {{ klass.name }}{% else %}Add class{% endif %} · AdminPilot{% endblock %}
+
+{% block content %}
+  <div class="page-header">
+    <div>
+      <h1>{% if klass %}Edit {{ klass.name }}{% else %}Add a class{% endif %}</h1>
+      {% if klass %}
+        <p class="page-header__sub">
+          Renaming a class also renames the spreadsheet tab the bulk import expects.
+        </p>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="card">
+    {% include "includes/form_errors.html" %}
+
+    <form method="post" class="form" novalidate>
+      {% csrf_token %}
+      {% for field in form %}
+        {% include "includes/field.html" %}
+      {% endfor %}
+      <div class="form-actions">
+        <button type="submit" class="btn btn--primary">
+          {% if klass %}Save changes{% else %}Add class{% endif %}
+        </button>
+        <a class="btn btn--secondary" href="{% url 'academic:class_list' %}">Cancel</a>
+      </div>
+    </form>
+  </div>
+{% endblock %}

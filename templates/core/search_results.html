@@ -1,0 +1,139 @@
+{% extends "base.html" %}
+
+{% comment %}
+Full-page search results (docs/03_Views_and_Endpoints.md: /search/?q=).
+{% endcomment %}
+
+{% block title %}Search results · AdminPilot{% endblock %}
+
+{% block content %}
+  <div class="page-header">
+    <div>
+      <h1>Search results</h1>
+      <p class="page-header__sub">
+        {% if query %}
+          Showing results for "{{ query }}" ({{ results.total_count }} found)
+        {% else %}
+          Enter a search query below
+        {% endif %}
+      </p>
+    </div>
+  </div>
+
+  <div class="card">
+    <form method="get" action="{% url 'core:search' %}" class="form form--wide" role="search"
+          style="display:flex; gap:var(--space-3); align-items:flex-end;">
+      <div class="field" style="flex:1; margin-bottom:0;">
+        <label class="field__label" for="q">Search</label>
+        <input type="text" name="q" id="q" value="{{ query }}" placeholder="Student name, admission no, receipt no, or method...">
+      </div>
+      <div class="form-actions" style="margin-top:0;">
+        <button type="submit" class="btn btn--primary">Search</button>
+      </div>
+    </form>
+  </div>
+
+  {% if query %}
+    {% if results.total_count == 0 %}
+      <div class="card">
+        <p class="table__empty">No results found for "{{ query }}".</p>
+      </div>
+    {% else %}
+
+      {% if results.students %}
+        <div class="card">
+          <h2 class="card__title">Students ({{ results.students|length }})</h2>
+          <div class="table-wrap">
+            <table class="table">
+              <thead>
+                <tr>
+                  <th scope="col">Name</th>
+                  <th scope="col">Admission no.</th>
+                  <th scope="col"><span class="visually-hidden">Actions</span></th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for item in results.students %}
+                  <tr>
+                    <td><strong>{{ item.student.full_name }}</strong></td>
+                    <td>{{ item.student.admission_number }}</td>
+                    <td>
+                      <a class="btn btn--link" href="{{ item.url }}">View profile</a>
+                    </td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      {% endif %}
+
+      {% if results.receipts %}
+        <div class="card">
+          <h2 class="card__title">Receipts ({{ results.receipts|length }})</h2>
+          <div class="table-wrap">
+            <table class="table">
+              <thead>
+                <tr>
+                  <th scope="col">Receipt no.</th>
+                  <th scope="col">Student</th>
+                  <th scope="col" style="text-align:right;">Amount</th>
+                  <th scope="col">Date</th>
+                  <th scope="col"><span class="visually-hidden">Actions</span></th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for receipt in results.receipts %}
+                  <tr>
+                    <td><strong>{{ receipt.receipt_number }}</strong></td>
+                    <td>{{ receipt.payment.assignment.student.full_name }}</td>
+                    <td style="text-align:right;">{{ receipt.payment.amount }}</td>
+                    <td>{{ receipt.created_at|date:"M j, Y" }}</td>
+                    <td>
+                      <a class="btn btn--link" href="{% url 'billing:receipt_detail' receipt.pk %}">View receipt</a>
+                    </td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      {% endif %}
+
+      {% if results.payments %}
+        <div class="card">
+          <h2 class="card__title">Payments ({{ results.payments|length }})</h2>
+          <div class="table-wrap">
+            <table class="table">
+              <thead>
+                <tr>
+                  <th scope="col">Student</th>
+                  <th scope="col">Fee</th>
+                  <th scope="col" style="text-align:right;">Amount</th>
+                  <th scope="col">Method</th>
+                  <th scope="col">Date</th>
+                  <th scope="col"><span class="visually-hidden">Actions</span></th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for payment in results.payments %}
+                  <tr>
+                    <td><strong>{{ payment.assignment.student.full_name }}</strong></td>
+                    <td>{{ payment.assignment.fee_structure.name }}</td>
+                    <td style="text-align:right;">{{ payment.amount }}</td>
+                    <td>{{ payment.get_method_display }}</td>
+                    <td>{{ payment.payment_date|date:"M j, Y" }}</td>
+                    <td>
+                      <a class="btn btn--link" href="{% url 'billing:payment_detail' payment.pk %}">View details</a>
+                    </td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      {% endif %}
+
+    {% endif %}
+  {% endif %}
+{% endblock %}

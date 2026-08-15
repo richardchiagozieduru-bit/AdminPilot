@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+
+{% comment %}
+Audit Log (docs/04_Permission_Matrix.md's tiered visibility).
+
+A non-Owner's page is not this page with rows removed by the template — the view's
+queryset never selected another user's entries. The banner below says so, because
+an Administrator seeing three entries on a busy day should know they are looking at
+their own actions and not at a broken log.
+{% endcomment %}
+
+{% block title %}Audit log · AdminPilot{% endblock %}
+
+{% block content %}
+  <div class="page-header">
+    <div>
+      <h1>Audit log</h1>
+      <p class="page-header__sub">
+        {% if scope_is_own_only %}
+          Your own actions.
+        {% else %}
+          Every recorded action across this school.
+        {% endif %}
+      </p>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="table-wrap">
+      <table class="table">
+        <thead>
+          <tr>
+            <th scope="col">When</th>
+            {% if not scope_is_own_only %}<th scope="col">Who</th>{% endif %}
+            <th scope="col">Action</th>
+            <th scope="col">What happened</th>
+            <th scope="col">Reason</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for entry in entries %}
+            <tr>
+              <td>{{ entry.created_at|date:"j M Y, H:i" }}</td>
+              {% if not scope_is_own_only %}
+                <td>{{ entry.actor.full_name|default:"System" }}</td>
+              {% endif %}
+              <td><span class="badge badge--muted">{{ entry.action }}</span></td>
+              <td>{{ entry.summary }}</td>
+              <td>{{ entry.reason|default:"—" }}</td>
+            </tr>
+          {% empty %}
+            <tr>
+              <td colspan="5" class="table__empty">Nothing recorded yet.</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  {% if is_paginated %}
+    <nav class="quick-actions" aria-label="Pagination">
+      {% if page_obj.has_previous %}
+        <a class="btn btn--secondary" href="?page={{ page_obj.previous_page_number }}">Previous</a>
+      {% endif %}
+      <span class="field__help">Page {{ page_obj.number }} of {{ paginator.num_pages }}</span>
+      {% if page_obj.has_next %}
+        <a class="btn btn--secondary" href="?page={{ page_obj.next_page_number }}">Next</a>
+      {% endif %}
+    </nav>
+  {% endif %}
+{% endblock %}

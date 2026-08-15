@@ -1,0 +1,132 @@
+{% extends "platform_admin/base_platform.html" %}
+
+{% comment %}
+Registrations by status (docs/08_UI_UX.md): School Name, Owner Email,
+Submitted Date, status filter, inline Approve/Reject.
+
+Every column here comes from the institutions table. No student, fee, or
+payment field is reachable from this context — structurally, because the view
+never queries those tables, not because this template omits them.
+{% endcomment %}
+
+{% block title %}Institutions · AdminPilot Platform{% endblock %}
+
+{% block content %}
+  <div class="page-header">
+    <div>
+      <h1>Institutions</h1>
+      <p class="page-header__sub">
+        {{ pending_count }} awaiting review
+      </p>
+    </div>
+  </div>
+
+  <div class="card">
+    <p class="card__title">Filter</p>
+    <div class="quick-actions">
+      {% for value, label in status_choices %}
+        <a class="btn {% if active_status == value %}btn--primary{% else %}btn--secondary{% endif %}"
+           href="?status={{ value }}">{{ label }}</a>
+      {% endfor %}
+      <a class="btn {% if active_status == 'all' %}btn--primary{% else %}btn--secondary{% endif %}"
+         href="?status=all">All</a>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="table-wrap">
+      <table class="table">
+        <thead>
+          <tr>
+            <th scope="col">School</th>
+            <th scope="col">Owner email</th>
+            <th scope="col">Submitted</th>
+            <th scope="col">Status</th>
+            <th scope="col"><span class="visually-hidden">Actions</span></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for institution in institutions %}
+            <tr>
+              <td>
+                <strong>{{ institution.name }}</strong><br>
+                <span class="field__help">{{ institution.code }} · {{ institution.get_type_display }}</span>
+              </td>
+              <td>{{ institution.email }}{% if institution.phone %}<br><span class="field__help">{{ institution.phone }}</span>{% endif %}</td>
+              <td>{{ institution.created_at|date:"j M Y" }}</td>
+              <td>
+                {% if institution.status == 'approved' %}
+                  <span class="badge badge--success">Approved</span>
+                {% elif institution.status == 'pending' %}
+                  <span class="badge badge--warning">Pending</span>
+                {% elif institution.status == 'rejected' %}
+                  <span class="badge badge--danger">Rejected</span>
+                {% else %}
+                  <span class="badge badge--muted">{{ institution.get_status_display }}</span>
+                {% endif %}
+                {% if institution.reviewed_at %}
+                  <div class="field__help">
+                    {{ institution.reviewed_at|date:"j M Y" }}
+                    {% if institution.reviewed_by %}by {{ institution.reviewed_by.email }}{% endif %}
+                  </div>
+                {% endif %}
+                {% if institution.review_note %}
+                  <div class="field__help">{{ institution.review_note }}</div>
+                {% endif %}
+              </td>
+              <td>
+                {% if institution.status == 'pending' %}
+                  {% comment %}
+                  Both are POST — approval and rejection are state changes and
+                  must not be reachable by a prefetched link.
+                  {% endcomment %}
+                  <form method="post"
+                        action="{% url 'platform_admin:approve_institution' institution.pk %}"
+                        style="display:inline;">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn--primary">Approve</button>
+                  </form>
+
+                  <details style="display:inline-block; margin-left: var(--space-2);">
+                    <summary class="btn btn--secondary" style="display:inline-block;">Reject</summary>
+                    <form method="post"
+                          action="{% url 'platform_admin:reject_institution' institution.pk %}"
+                          class="form" style="margin-top: var(--space-3);">
+                      {% csrf_token %}
+                      <label class="field__label" for="reason_{{ institution.pk }}">
+                        Reason <span class="field__required" aria-hidden="true">*</span>
+                        <span class="visually-hidden">(required)</span>
+                      </label>
+                      <textarea id="reason_{{ institution.pk }}" name="reason" rows="3" required
+                                maxlength="1000"></textarea>
+                      <p class="field__help">Shown to the applicant.</p>
+                      <button type="submit" class="btn btn--danger">Confirm rejection</button>
+                    </form>
+                  </details>
+                {% endif %}
+              </td>
+            </tr>
+          {% empty %}
+            <tr>
+              <td colspan="5" class="table__empty">No institutions with this status.</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  {% if is_paginated %}
+    <nav class="quick-actions" aria-label="Pagination">
+      {% if page_obj.has_previous %}
+        <a class="btn btn--secondary"
+           href="?status={{ active_status }}&page={{ page_obj.previous_page_number }}">Previous</a>
+      {% endif %}
+      <span class="field__help">Page {{ page_obj.number }} of {{ paginator.num_pages }}</span>
+      {% if page_obj.has_next %}
+        <a class="btn btn--secondary"
+           href="?status={{ active_status }}&page={{ page_obj.next_page_number }}">Next</a>
+      {% endif %}
+    </nav>
+  {% endif %}
+{% endblock %}

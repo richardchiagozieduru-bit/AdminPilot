@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+
+{% comment %}
+User invite template (docs/03_Views_and_Endpoints.md, CR-003). Owner only.
+
+Displays the generated setup link upon submit so the Owner can copy and share it directly.
+{% endcomment %}
+
+{% block title %}Invite staff member · AdminPilot{% endblock %}
+
+{% block content %}
+  <div class="page-header">
+    <div>
+      <h1>Invite staff member</h1>
+      <p class="page-header__sub">
+        Invite an Administrator or Bursar. Per CR-003, a setup link is generated for you to copy and share directly.
+      </p>
+    </div>
+  </div>
+
+  {% if setup_link %}
+    <div class="card" style="border-left: 4px solid var(--color-success, #2e7d32);">
+      <h2 class="card__title">Setup link generated for {{ invited_user.full_name }}</h2>
+      <p>Share this unique link with <strong>{{ invited_user.email }}</strong> so they can set their password and activate their account:</p>
+      
+      <div class="field" style="margin-top:var(--space-3);">
+        <input type="text" id="setup_link_input" value="{{ setup_link }}" readonly style="font-family:monospace; background:var(--color-bg-subtle, #f5f5f5);">
+      </div>
+
+      <div class="quick-actions" style="margin-top:var(--space-3);">
+        <button type="button" class="btn btn--primary" onclick="navigator.clipboard.writeText(document.getElementById('setup_link_input').value); alert('Link copied to clipboard!');">Copy setup link</button>
+        <a class="btn btn--secondary" href="{% url 'accounts:user_list' %}">Done</a>
+      </div>
+    </div>
+  {% else %}
+    <div class="card">
+      {% include "includes/form_errors.html" %}
+
+      <form method="post" class="form" novalidate>
+        {% csrf_token %}
+
+        {% for field in form %}
+          {% include "includes/field.html" %}
+        {% endfor %}
+
+        <div class="form-actions">
+          <button type="submit" class="btn btn--primary">Generate setup link</button>
+          <a class="btn btn--secondary" href="{% url 'accounts:user_list' %}">Cancel</a>
+        </div>
+      </form>
+    </div>
+  {% endif %}
+{% endblock %}

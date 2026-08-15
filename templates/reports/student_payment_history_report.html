@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+
+{% comment %}
+Student Payment History Statement (docs/03_Views_and_Endpoints.md).
+{% endcomment %}
+
+{% block title %}Payment Statement — {{ report.student.full_name }} · AdminPilot{% endblock %}
+
+{% block content %}
+  <div class="page-header">
+    <div>
+      <h1>Student Statement</h1>
+      <p class="page-header__sub">
+        {{ report.student.full_name }} ({{ report.student.admission_number }})
+      </p>
+    </div>
+    <div class="quick-actions">
+      <a class="btn btn--secondary"
+         href="{% url 'reports:student_payment_history_export' report.student.pk %}">
+        Export CSV
+      </a>
+      <a class="btn btn--secondary" href="{% url 'students:detail' report.student.pk %}">Back to Profile</a>
+    </div>
+  </div>
+
+  <div class="stat-grid">
+    <div class="stat">
+      <p class="stat__label">Total Billed</p>
+      <p class="stat__value stat__value--money">{{ report.total_billed }}</p>
+    </div>
+    <div class="stat">
+      <p class="stat__label">Total Paid</p>
+      <p class="stat__value stat__value--money">{{ report.total_paid }}</p>
+    </div>
+    <div class="stat">
+      <p class="stat__label">Outstanding</p>
+      <p class="stat__value stat__value--money">{{ report.total_outstanding }}</p>
+    </div>
+    <div class="stat">
+      <p class="stat__label">Credit Balance</p>
+      <p class="stat__value stat__value--money">{{ report.credit_balance }}</p>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2 class="card__title">Fee Assignments</h2>
+    <div class="table-wrap">
+      <table class="table">
+        <thead>
+          <tr>
+            <th scope="col">Fee Structure</th>
+            <th scope="col">Class</th>
+            <th scope="col">Term</th>
+            <th scope="col" style="text-align:right;">Amount Due</th>
+            <th scope="col" style="text-align:right;">Outstanding</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for a in report.assignments %}
+            <tr>
+              <td><strong>{{ a.fee_structure.name }}</strong></td>
+              <td>{{ a.fee_structure.klass.name }}</td>
+              <td>{{ a.fee_structure.term.name }}</td>
+              <td style="text-align:right;">{{ a.amount_due }}</td>
+              <td style="text-align:right;">{{ a.outstanding_balance }}</td>
+            </tr>
+          {% empty %}
+            <tr><td colspan="5" class="table__empty">No fee assignments.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2 class="card__title">Payment History</h2>
+    <div class="table-wrap">
+      <table class="table">
+        <thead>
+          <tr>
+            <th scope="col">Date</th>
+            <th scope="col">Fee Structure</th>
+            <th scope="col" style="text-align:right;">Amount</th>
+            <th scope="col">Method</th>
+            <th scope="col">Receipt</th>
+            <th scope="col">Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for p in report.payments %}
+            <tr>
+              <td>{{ p.payment_date|date:"M j, Y" }}</td>
+              <td>{{ p.assignment.fee_structure.name }}</td>
+              <td style="text-align:right;">{{ p.amount }}</td>
+              <td>{{ p.get_method_display }}</td>
+              <td>
+                {% if p.receipt %}
+                  <a href="{% url 'billing:receipt_detail' p.receipt.pk %}">{{ p.receipt.receipt_number }}</a>
+                {% else %}
+                  —
+                {% endif %}
+              </td>
+              <td>
+                {% if p.status == 'active' %}
+                  <span class="badge badge--success">Active</span>
+                {% else %}
+                  <span class="badge badge--danger">Reversed</span>
+                {% endif %}
+              </td>
+            </tr>
+          {% empty %}
+            <tr><td colspan="6" class="table__empty">No payments recorded.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+{% endblock %}

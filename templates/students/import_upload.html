@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+
+{% comment %}
+Bulk import — step 1 of the flow (docs/03_Views_and_Endpoints.md): download the
+template, fill it in, upload it. The upload is staged and validated by
+students.services and the user is sent to the preview; nothing is written to the
+students table from this page.
+
+The template is generated fresh from the current active-class list on each
+download, so it needs at least one active class to have any worksheets. When
+there are none, this page says so and points at class setup rather than offering
+a download that would only bounce back.
+{% endcomment %}
+
+{% block title %}Bulk import students · AdminPilot{% endblock %}
+
+{% block content %}
+  <div class="page-header">
+    <div>
+      <h1>Bulk import students</h1>
+      <p class="page-header__sub">
+        Import a whole class list from a spreadsheet, one worksheet per class.
+      </p>
+    </div>
+    <a class="btn btn--link" href="{% url 'students:list' %}">Back to students</a>
+  </div>
+
+  {% if not has_active_classes %}
+    <div class="card">
+      <h2 class="card__title">Add a class first</h2>
+      <p>
+        The import template has one worksheet per active class, so there's
+        nothing to generate yet. Add at least one class, then come back.
+      </p>
+      <div class="form-actions">
+        <a class="btn btn--primary" href="{% url 'academic:class_list' %}">Go to classes</a>
+      </div>
+    </div>
+  {% else %}
+    <div class="card">
+      <h2 class="card__title">How it works</h2>
+      <ol style="margin:0 0 var(--space-4) var(--space-4); padding:0;">
+        <li>Download the template — it has one worksheet per active class, named exactly like the class.</li>
+        <li>Fill in one row per student under the right class's tab. Leave the header row alone.</li>
+        <li>Upload it below. You'll see a preview to check and confirm before anything is saved.</li>
+      </ol>
+      <div class="form-actions" style="margin-top:0;">
+        <a class="btn btn--secondary" href="{% url 'students:import_template' %}">Download template (.xlsx)</a>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2 class="card__title">Upload your completed template</h2>
+      {% include "includes/form_errors.html" %}
+      <form method="post" class="form" enctype="multipart/form-data" novalidate>
+        {% csrf_token %}
+        {% for field in form %}
+          {% include "includes/field.html" %}
+        {% endfor %}
+        <div class="form-actions">
+          <button type="submit" class="btn btn--primary">Upload and preview</button>
+          <a class="btn btn--secondary" href="{% url 'students:list' %}">Cancel</a>
+        </div>
+      </form>
+    </div>
+  {% endif %}
+{% endblock %}

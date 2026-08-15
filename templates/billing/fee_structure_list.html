@@ -1,0 +1,121 @@
+{% extends "base.html" %}
+
+{% comment %}
+Fee structure list (docs/03_Views_and_Endpoints.md: /fee-structures/?term_id=).
+
+All three billable roles (Owner, Administrator, Bursar) see this page;
+`can_manage` adds the create button for roles with manage access.
+{% endcomment %}
+
+{% block title %}Fee Structures · AdminPilot{% endblock %}
+
+{% block content %}
+  <div class="page-header">
+    <div>
+      <h1>Fee Structures</h1>
+      <p class="page-header__sub">
+        {% if is_paginated %}
+          {{ page_obj.paginator.count }} fee structures
+        {% else %}
+          {{ fee_structures|length }} fee structures
+        {% endif %}
+        {% if selected_term_id %}· filtered{% endif %}
+      </p>
+    </div>
+    {% if can_manage %}
+      <div class="quick-actions">
+        <a class="btn btn--primary" href="{% url 'billing:fee_structure_create' %}">Create fee structure</a>
+      </div>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <form method="get" class="form form--wide" role="search"
+          style="display:flex; flex-wrap:wrap; gap:var(--space-4); align-items:flex-end;">
+      <div class="field" style="flex:1 1 200px; margin-bottom:0;">
+        <label class="field__label" for="term_id">Term</label>
+        <select name="term_id" id="term_id">
+          <option value="">All terms</option>
+          {% for term in terms %}
+            <option value="{{ term.pk }}"{% if selected_term_id == term.pk|stringformat:"s" %} selected{% endif %}>{{ term }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="form-actions" style="margin-top:0;">
+        <button type="submit" class="btn btn--primary">Filter</button>
+        <a class="btn btn--link" href="{% url 'billing:fee_structure_list' %}">Clear</a>
+      </div>
+    </form>
+  </div>
+
+  <div class="card">
+    <div class="table-wrap">
+      <table class="table">
+        <thead>
+          <tr>
+            <th scope="col">Name</th>
+            <th scope="col">Class</th>
+            <th scope="col">Session / Term</th>
+            <th scope="col">Total</th>
+            <th scope="col">Status</th>
+            <th scope="col"><span class="visually-hidden">Actions</span></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for fs in fee_structures %}
+            <tr>
+              <td><strong>{{ fs.name }}</strong></td>
+              <td>{{ fs.klass.name }}</td>
+              <td>{{ fs.session.name }} — {{ fs.term.name }}</td>
+              <td>{{ fs.total_amount }}</td>
+              <td>
+                {% if fs.locked %}
+                  <span class="badge badge--muted">Locked</span>
+                {% else %}
+                  <span class="badge badge--success">Open</span>
+                {% endif %}
+              </td>
+              <td>
+                <a class="btn btn--link" href="{% url 'billing:fee_structure_detail' fs.pk %}">View</a>
+                {% if can_manage and not fs.locked %}
+                  <a class="btn btn--link" href="{% url 'billing:fee_structure_edit' fs.pk %}">Edit</a>
+                {% endif %}
+                {% if can_manage %}
+                  <a class="btn btn--link" href="{% url 'billing:fee_structure_delete' fs.pk %}" style="color:var(--color-danger, #dc2626);">Delete</a>
+                {% endif %}
+              </td>
+            </tr>
+          {% empty %}
+            <tr>
+              <td colspan="6" class="table__empty">
+                {% if selected_term_id %}
+                  No fee structures for this term.
+                  <a href="{% url 'billing:fee_structure_list' %}">Clear filter.</a>
+                {% else %}
+                  No fee structures yet.
+                  {% if can_manage %}
+                    <a href="{% url 'billing:fee_structure_create' %}">Create one.</a>
+                  {% endif %}
+                {% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  {% if is_paginated %}
+    <nav class="quick-actions" aria-label="Pagination">
+      {% if page_obj.has_previous %}
+        <a class="btn btn--secondary"
+           href="?page={{ page_obj.previous_page_number }}&term_id={{ selected_term_id|urlencode }}">Previous</a>
+      {% endif %}
+      <span class="page-header__sub">Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
+      {% if page_obj.has_next %}
+        <a class="btn btn--secondary"
+           href="?page={{ page_obj.next_page_number }}&term_id={{ selected_term_id|urlencode }}">Next</a>
+      {% endif %}
+    </nav>
+  {% endif %}
+{% endblock %}

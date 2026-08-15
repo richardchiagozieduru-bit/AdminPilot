@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+
+{% comment %}
+Adjust a student's fee assignment — the only path to correct a fee after
+the parent structure is locked (docs/02_Database.md).
+{% endcomment %}
+
+{% block title %}Adjust fee — {{ assignment.student.full_name }} · AdminPilot{% endblock %}
+
+{% block content %}
+  <div class="page-header">
+    <div>
+      <h1>Adjust fee</h1>
+      <p class="page-header__sub">
+        {{ assignment.student.full_name }} ({{ assignment.student.admission_number }})
+        · {{ assignment.fee_structure.name }}
+        · Current amount: {{ assignment.amount_due }}
+      </p>
+    </div>
+  </div>
+
+  <div class="card">
+    {% include "includes/form_errors.html" %}
+
+    <form method="post" class="form" novalidate>
+      {% csrf_token %}
+
+      {% for field in form %}
+        {% include "includes/field.html" %}
+      {% endfor %}
+
+      <div class="form-actions">
+        <button type="submit" class="btn btn--primary">Save adjustment</button>
+        <a class="btn btn--secondary"
+           href="{% url 'billing:fee_assignment_list' assignment.fee_structure.pk %}">Cancel</a>
+      </div>
+    </form>
+  </div>
+{% endblock %}

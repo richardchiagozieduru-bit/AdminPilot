@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+
+{% comment %}
+User update template (docs/03_Views_and_Endpoints.md). Owner only.
+{% endcomment %}
+
+{% block title %}Edit {{ target_user.full_name }} · AdminPilot{% endblock %}
+
+{% block content %}
+  <div class="page-header">
+    <div>
+      <h1>Edit staff account</h1>
+      <p class="page-header__sub">
+        {{ target_user.full_name }} ({{ target_user.email }})
+      </p>
+    </div>
+  </div>
+
+  <div class="card">
+    {% include "includes/form_errors.html" %}
+
+    <form method="post" class="form" novalidate>
+      {% csrf_token %}
+
+      {% for field in form %}
+        {% include "includes/field.html" %}
+      {% endfor %}
+
+      <div class="form-actions">
+        <button type="submit" class="btn btn--primary">Save changes</button>
+        <a class="btn btn--secondary" href="{% url 'accounts:user_list' %}">Cancel</a>
+      </div>
+    </form>
+  </div>
+{% endblock %}

@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+
+{% comment %}
+Income Report (docs/03_Views_and_Endpoints.md: /reports/income/).
+{% endcomment %}
+
+{% block title %}Income Report · AdminPilot{% endblock %}
+
+{% block content %}
+  <div class="page-header">
+    <div>
+      <h1>Income Report</h1>
+      <p class="page-header__sub">
+        Revenue breakdown for {{ report.date_from|date:"M j, Y" }} to {{ report.date_to|date:"M j, Y" }}
+      </p>
+    </div>
+    <div class="quick-actions">
+      <a class="btn btn--secondary"
+         href="{% url 'reports:income_export' %}?period={{ selected_period }}&date_from={{ selected_date_from }}&date_to={{ selected_date_to }}&term_id={{ selected_term_id }}">
+        Export CSV
+      </a>
+      <a class="btn btn--link" href="{% url 'reports:hub' %}">Back to Hub</a>
+    </div>
+  </div>
+
+  <div class="card">
+    <form method="get" class="form form--wide" style="display:flex; flex-wrap:wrap; gap:var(--space-4); align-items:flex-end;">
+      <div class="field" style="flex:1 1 140px; margin-bottom:0;">
+        <label class="field__label" for="period">Period</label>
+        <select name="period" id="period">
+          <option value="term"{% if selected_period == 'term' %} selected{% endif %}>Current Term</option>
+          <option value="daily"{% if selected_period == 'daily' %} selected{% endif %}>Daily</option>
+          <option value="weekly"{% if selected_period == 'weekly' %} selected{% endif %}>Weekly</option>
+          <option value="monthly"{% if selected_period == 'monthly' %} selected{% endif %}>Monthly</option>
+          <option value="custom"{% if selected_period == 'custom' %} selected{% endif %}>Custom Date Range</option>
+        </select>
+      </div>
+      <div class="field" style="flex:1 1 140px; margin-bottom:0;">
+        <label class="field__label" for="date_from">From</label>
+        <input type="date" name="date_from" id="date_from" value="{{ selected_date_from }}">
+      </div>
+      <div class="field" style="flex:1 1 140px; margin-bottom:0;">
+        <label class="field__label" for="date_to">To</label>
+        <input type="date" name="date_to" id="date_to" value="{{ selected_date_to }}">
+      </div>
+      <div class="form-actions" style="margin-top:0;">
+        <button type="submit" class="btn btn--primary">Filter</button>
+        <a class="btn btn--link" href="{% url 'reports:income' %}">Reset</a>
+      </div>
+    </form>
+  </div>
+
+  <div class="stat-grid">
+    <div class="stat">
+      <p class="stat__label">Total Collected</p>
+      <p class="stat__value stat__value--money">{{ report.total_collected }}</p>
+    </div>
+    <div class="stat">
+      <p class="stat__label">Cash</p>
+      <p class="stat__value stat__value--money">{{ report.cash_total }}</p>
+    </div>
+    <div class="stat">
+      <p class="stat__label">Transfer</p>
+      <p class="stat__value stat__value--money">{{ report.transfer_total }}</p>
+    </div>
+    <div class="stat">
+      <p class="stat__label">POS</p>
+      <p class="stat__value stat__value--money">{{ report.pos_total }}</p>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2 class="card__title">Payment Transactions ({{ report.payments|length }})</h2>
+    <div class="table-wrap">
+      <table class="table">
+        <thead>
+          <tr>
+            <th scope="col">Date</th>
+            <th scope="col">Student</th>
+            <th scope="col">Fee Structure</th>
+            <th scope="col" style="text-align:right;">Amount</th>
+            <th scope="col">Method</th>
+            <th scope="col">Receipt</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for p in report.payments %}
+            <tr>
+              <td>{{ p.payment_date|date:"M j, Y" }}</td>
+              <td>
+                <a href="{% url 'students:detail' p.assignment.student.pk %}">{{ p.assignment.student.full_name }}</a>
+              </td>
+              <td>{{ p.assignment.fee_structure.name }}</td>
+              <td style="text-align:right;">{{ p.amount }}</td>
+              <td>{{ p.get_method_display }}</td>
+              <td>
+                {% if p.receipt %}
+                  <a href="{% url 'billing:receipt_detail' p.receipt.pk %}">{{ p.receipt.receipt_number }}</a>
+                {% else %}
+                  —
+                {% endif %}
+              </td>
+            </tr>
+          {% empty %}
+            <tr>
+              <td colspan="6" class="table__empty">No income transactions found for this period.</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+{% endblock %}

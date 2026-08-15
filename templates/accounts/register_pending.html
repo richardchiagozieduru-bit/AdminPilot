@@ -1,0 +1,22 @@
+{% extends "base_public.html" %}
+
+{% block title %}Under review · AdminPilot{% endblock %}
+{% block lede %}Thanks — we have your application.{% endblock %}
+
+{% block content %}
+  <h1>Your school is under review</h1>
+
+  <p>
+    We review each registration by hand, usually within one business day.
+    You'll get an email at the address you gave us once your school is
+    approved, and you can sign in from that point.
+  </p>
+  <p class="field__help">
+    Signing in before then will tell you the review is still in progress —
+    nothing is lost, and there's nothing else you need to do.
+  </p>
+
+  <p class="public__footer">
+    <a href="{% url 'accounts:login' %}">Back to sign in</a>
+  </p>
+{% endblock %}

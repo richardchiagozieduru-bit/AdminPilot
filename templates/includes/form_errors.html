@@ -1,0 +1,13 @@
+{% comment %}
+Form-wide (non-field) errors.
+
+Login's "your school is still under review" arrives here — it belongs to the
+attempt, not to the email or the password field.
+{% endcomment %}
+{% if form.non_field_errors %}
+  <ul class="messages" role="alert">
+    {% for error in form.non_field_errors %}
+      <li class="message message--error">{{ error }}</li>
+    {% endfor %}
+  </ul>
+{% endif %}
