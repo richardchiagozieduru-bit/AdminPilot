@@ -52,6 +52,7 @@ def env_bool(name, default=False):
 # solely for its benefit, and nothing in the specs uses it.
 
 DJANGO_APPS = [
+    "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
     "django.contrib.sessions",
@@ -72,7 +73,7 @@ LOCAL_APPS = [
     "reports",
 ]
 
-INSTALLED_APPS = DJANGO_APPS + LOCAL_APPS
+INSTALLED_APPS = LOCAL_APPS + DJANGO_APPS
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",

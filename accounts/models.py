@@ -84,6 +84,21 @@ class User(AbstractBaseUser):
         return self.role == self.Role.BURSAR
 
     @property
+    def is_staff(self):
+        return self.is_active and self.role in {self.Role.OWNER, self.Role.ADMINISTRATOR}
+
+    @property
+    def is_superuser(self):
+        return self.is_active and self.role == self.Role.OWNER
+
+    def has_perm(self, perm, obj=None):
+        return self.is_active
+
+    def has_module_perms(self, app_label):
+        return self.is_active
+
+    @property
     def can_sign_in(self):
         """Active account inside an approved institution."""
         return self.is_active and self.institution.is_active_tenant
+

@@ -48,5 +48,19 @@ class PlatformUser(AbstractBaseUser):
     class Meta:
         db_table = "platform_users"
 
+    @property
+    def is_staff(self):
+        return self.is_active
+
+    @property
+    def is_superuser(self):
+        return self.is_active
+
+    def has_perm(self, perm, obj=None):
+        return self.is_active
+
+    def has_module_perms(self, app_label):
+        return self.is_active
+
     def __str__(self):
         return f"PlatformUser: {self.email}"

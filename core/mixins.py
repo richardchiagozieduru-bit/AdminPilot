@@ -43,9 +43,7 @@ class InstitutionUserRequiredMixin:
         # PlatformUser has no institution_id column at all — that structural
         # absence (docs/02_Database.md) is what this reads.
         if getattr(user, "institution_id", None) is None:
-            raise PermissionDenied(
-                "Platform accounts have no access to institution screens."
-            )
+            return redirect("platform_admin:institution_list")
 
         if not user.institution.is_active_tenant:
             from django.contrib.auth import logout

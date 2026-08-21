@@ -150,6 +150,8 @@ class TenantContextMiddleware:
             # runs unstamped, and with the clear-on-exit below that means it
             # runs with no tenant rather than the wrong one.
             set_database_session_context(institution_id)
+            if request.path.startswith("/admin/"):
+                _set_session_key(AUTH_LOOKUP_KEY, 1)
             request.institution_id = institution_id
             response = self.get_response(request)
         finally:

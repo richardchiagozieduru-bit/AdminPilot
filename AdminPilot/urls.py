@@ -13,9 +13,16 @@ App URLconfs land with their views in Phases 2-9; the roadmap's phase order is
 the order these get uncommented.
 """
 
+from django.contrib import admin
 from django.urls import include, path
 
+admin.site.site_header = "AdminPilot Administration"
+admin.site.site_title = "AdminPilot Admin"
+admin.site.index_title = "Database Administration"
+admin.site.site_url = "/platform/institutions/"
+
 urlpatterns = [
+    path("admin/", admin.site.urls),
     path("platform/", include("platform_admin.urls")),
     path("", include("accounts.urls")),
     path("", include("academic.urls")),
