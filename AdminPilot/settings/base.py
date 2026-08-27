@@ -54,6 +54,24 @@ def env_list(name, default=None):
     return [item.strip() for item in raw.split(",") if item.strip()]
 
 
+# --- Hosts & Security -----------------------------------------------------
+ALLOWED_HOSTS = env_list("ALLOWED_HOSTS", "*")
+
+website_hostname = os.environ.get("WEBSITE_HOSTNAME")
+if website_hostname and website_hostname not in ALLOWED_HOSTS:
+    ALLOWED_HOSTS.append(website_hostname)
+if ".azurewebsites.net" not in ALLOWED_HOSTS and "*" not in ALLOWED_HOSTS:
+    ALLOWED_HOSTS.append(".azurewebsites.net")
+
+CSRF_TRUSTED_ORIGINS = env_list("CSRF_TRUSTED_ORIGINS", "")
+if website_hostname:
+    azure_origin = f"https://{website_hostname}"
+    if azure_origin not in CSRF_TRUSTED_ORIGINS:
+        CSRF_TRUSTED_ORIGINS.append(azure_origin)
+if "https://*.azurewebsites.net" not in CSRF_TRUSTED_ORIGINS:
+    CSRF_TRUSTED_ORIGINS.append("https://*.azurewebsites.net")
+
+
 # --- Applications ---------------------------------------------------------
 #
 # django.contrib.admin is deliberately absent (docs/06_CR_Process.md CR-004):
