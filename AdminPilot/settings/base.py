@@ -55,6 +55,9 @@ def env_list(name, default=None):
 
 
 # --- Hosts & Security -----------------------------------------------------
+SECRET_KEY = env("SECRET_KEY", "django-insecure-apex-production-secret-key-2026!")
+DEBUG = env_bool("DEBUG", False)
+
 ALLOWED_HOSTS = env_list("ALLOWED_HOSTS", "*")
 
 website_hostname = os.environ.get("WEBSITE_HOSTNAME")
@@ -104,6 +107,7 @@ INSTALLED_APPS = LOCAL_APPS + DJANGO_APPS
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
