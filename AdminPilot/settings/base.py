@@ -45,6 +45,15 @@ def env_bool(name, default=False):
     return env(name, str(default)).strip().lower() in {"1", "true", "yes", "on"}
 
 
+def env_list(name, default=None):
+    raw = env(name, default)
+    if not raw:
+        return []
+    if isinstance(raw, (list, tuple, set)):
+        return list(raw)
+    return [item.strip() for item in raw.split(",") if item.strip()]
+
+
 # --- Applications ---------------------------------------------------------
 #
 # django.contrib.admin is deliberately absent (docs/06_CR_Process.md CR-004):
