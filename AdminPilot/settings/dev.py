@@ -18,12 +18,14 @@ DEBUG = env_bool("DEBUG", True)
 # never reached (prod settings will require it).
 SECRET_KEY = env("SECRET_KEY", "dev-only-insecure-key-not-for-deployment")
 
-ALLOWED_HOSTS = env_list("ALLOWED_HOSTS", "localhost,127.0.0.1,[::1]")
+ALLOWED_HOSTS = env_list("ALLOWED_HOSTS", "*")
 
 # Azure App Service sets WEBSITE_HOSTNAME automatically
 website_hostname = os.environ.get("WEBSITE_HOSTNAME")
 if website_hostname and website_hostname not in ALLOWED_HOSTS:
     ALLOWED_HOSTS.append(website_hostname)
+if ".azurewebsites.net" not in ALLOWED_HOSTS and "*" not in ALLOWED_HOSTS:
+    ALLOWED_HOSTS.append(".azurewebsites.net")
 
 CSRF_TRUSTED_ORIGINS = env_list("CSRF_TRUSTED_ORIGINS", "")
 if website_hostname:
