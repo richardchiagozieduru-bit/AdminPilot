@@ -9,3 +9,8 @@ python-dotenv==1.2.2
 # Bulk student import (docs/02_Database.md — multi-worksheet .xlsx template and
 # upload parsing). Read/write .xlsx only; no other Office format is handled.
 openpyxl==3.1.5
+
+# Production WSGI & Static File Serving for Cloud Deployment
+whitenoise>=6.6.0
+gunicorn>=21.2.0
+waitress>=3.0.0
