@@ -155,6 +155,18 @@ ASGI_APPLICATION = "AdminPilot.asgi.application"
 DB_USER = env("DB_USER", "")
 DB_PASSWORD = env("DB_PASSWORD", "")
 
+def get_default_odbc_driver():
+    try:
+        import pyodbc
+        available = pyodbc.drivers()
+        for d in ("ODBC Driver 18 for SQL Server", "ODBC Driver 17 for SQL Server", "SQL Server Native Client 11.0", "SQL Server"):
+            if d in available:
+                return d
+    except Exception:
+        pass
+    return "ODBC Driver 18 for SQL Server"
+
+
 DATABASES = {
     "default": {
         "ENGINE": "mssql",
@@ -167,7 +179,7 @@ DATABASES = {
         "USER": DB_USER,
         "PASSWORD": DB_PASSWORD,
         "OPTIONS": {
-            "driver": env("DB_DRIVER", "ODBC Driver 17 for SQL Server"),
+            "driver": env("DB_DRIVER", get_default_odbc_driver()),
             "extra_params": env("DB_EXTRA_PARAMS", "TrustServerCertificate=yes"),
         },
     }
