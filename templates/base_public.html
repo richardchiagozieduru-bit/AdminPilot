@@ -17,11 +17,11 @@ Public shell for Registration, Login, and password reset (docs/08_UI_UX.md & Mod
   <link rel="stylesheet" href="{% static 'css/tokens.css' %}">
   <link rel="stylesheet" href="{% static 'css/app.css' %}">
 
-  <!-- Theme Initializer -->
+  <!-- Theme Initializer (defaults to Light Mode) -->
   <script>
     (function() {
       var saved = localStorage.getItem('adminpilot_theme');
-      var theme = saved || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+      var theme = saved || 'light';
       document.documentElement.setAttribute('data-theme', theme);
     })();
   </script>

@@ -20,11 +20,11 @@ builds from core.permissions. Icons are attached inline per module URL name.
   <link rel="stylesheet" href="{% static 'css/tokens.css' %}">
   <link rel="stylesheet" href="{% static 'css/app.css' %}">
 
-  <!-- Theme Initializer (prevents theme flicker) -->
+  <!-- Theme Initializer (defaults to Light Mode) -->
   <script>
     (function() {
       var saved = localStorage.getItem('adminpilot_theme');
-      var theme = saved || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+      var theme = saved || 'light';
       document.documentElement.setAttribute('data-theme', theme);
     })();
   </script>
