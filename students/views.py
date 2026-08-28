@@ -116,7 +116,7 @@ class StudentListView(RoleRequiredMixin, TenantScopedQuerysetMixin, ListView):
     template_name = "students/student_list.html"
     context_object_name = "students"
     module = "students"
-    paginate_by = 50
+    paginate_by = 25
 
     def get_queryset(self):
         queryset = super().get_queryset()

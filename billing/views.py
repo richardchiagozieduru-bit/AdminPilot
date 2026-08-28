@@ -217,14 +217,9 @@ class FeeStructureUpdateView(RoleRequiredMixin, TenantScopedQuerysetMixin, Templ
 
     def get(self, request, *args, **kwargs):
         fee_structure = self.get_object()
-        if fee_structure.locked:
-            messages.warning(
-                request,
-                "This fee structure is locked because at least one payment has "
-                "been recorded against it. To make a correction, adjust "
-                "individual student assignments instead.",
-            )
-            return redirect("billing:fee_structure_detail", pk=fee_structure.pk)
+        has_payments = Payment.objects.filter(
+            assignment__fee_structure=fee_structure
+        ).exists()
 
         form = FeeStructureForm(
             instance=fee_structure,
@@ -235,18 +230,18 @@ class FeeStructureUpdateView(RoleRequiredMixin, TenantScopedQuerysetMixin, Templ
         )
         return self.render_to_response(
             self.get_context_data(
-                form=form, formset=formset, fee_structure=fee_structure
+                form=form,
+                formset=formset,
+                fee_structure=fee_structure,
+                has_payments=has_payments,
             )
         )
 
     def post(self, request, *args, **kwargs):
         fee_structure = self.get_object()
-        if fee_structure.locked:
-            messages.warning(
-                request,
-                "This fee structure is locked — edit rejected.",
-            )
-            return redirect("billing:fee_structure_detail", pk=fee_structure.pk)
+        has_payments = Payment.objects.filter(
+            assignment__fee_structure=fee_structure
+        ).exists()
 
         form = FeeStructureForm(
             request.POST,
@@ -304,6 +299,30 @@ class FeeStructureUpdateView(RoleRequiredMixin, TenantScopedQuerysetMixin, Templ
                 form=form, formset=formset, fee_structure=fee_structure
             )
         )
+
+
+class FeeStructureToggleLockView(RoleRequiredMixin, View):
+    """`/fee-structures/<id>/toggle-lock/` — toggle lock status."""
+
+    module = "fee_structures"
+    module_action = "manage"
+
+    def post(self, request, pk, *args, **kwargs):
+        fee_structure = get_object_or_404(
+            FeeStructure.objects.filter(institution_id=request.institution_id),
+            pk=pk,
+        )
+        toggle_fee_structure_lock(
+            fee_structure=fee_structure,
+            actor=request.user,
+            ip_address=request.META.get("REMOTE_ADDR"),
+        )
+        status_str = "locked" if fee_structure.locked else "unlocked"
+        messages.success(
+            request,
+            f"Fee structure '{fee_structure.name}' is now {status_str}.",
+        )
+        return redirect("billing:fee_structure_detail", pk=fee_structure.pk)
 
 
 class FeeStructureDeleteView(

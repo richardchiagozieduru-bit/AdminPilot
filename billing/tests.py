@@ -113,7 +113,7 @@ class FeeEngineServiceTests(ApprovedSchoolTestCase):
             )
             self.assertEqual(assignment.amount_due, Decimal("60000.00"))
 
-    def test_fee_structure_locks_on_payment_and_prevents_update(self):
+    def test_fee_structure_locks_on_payment_and_allows_safe_update(self):
         with self.in_school():
             structure = create_fee_structure(
                 institution_id=self.institution.pk,
@@ -128,7 +128,7 @@ class FeeEngineServiceTests(ApprovedSchoolTestCase):
                 student=self.student, fee_structure=structure
             )
 
-            # Record a payment
+            # Record a payment of 20,000
             record_payment(
                 assignment=assignment,
                 amount=Decimal("20000.00"),
@@ -140,14 +140,18 @@ class FeeEngineServiceTests(ApprovedSchoolTestCase):
             structure.refresh_from_db()
             self.assertTrue(structure.locked)
 
-            # Updating locked structure should raise ValidationError
-            with self.assertRaises(ValidationError):
-                update_fee_structure(
-                    fee_structure=structure,
-                    name="Attempt Update",
-                    items=[{"name": "Tuition", "amount": Decimal("60000.00")}],
-                    actor=self.owner,
-                )
+            # Updating structure should succeed and update assignment due amount
+            updated = update_fee_structure(
+                fee_structure=structure,
+                name="Updated Tuition",
+                items=[{"name": "Tuition", "amount": Decimal("60000.00")}],
+                actor=self.owner,
+            )
+            self.assertEqual(updated.total_amount, Decimal("60000.00"))
+            assignment.refresh_from_db()
+            self.assertEqual(assignment.amount_due, Decimal("60000.00"))
+            self.assertEqual(assignment.total_paid, Decimal("20000.00"))
+            self.assertEqual(assignment.outstanding_balance, Decimal("40000.00"))
 
     def test_adjust_student_fee_requires_reason(self):
         with self.in_school():

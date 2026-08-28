@@ -8,6 +8,7 @@ Module permissions:
 
 import logging
 
+from django.core.paginator import Paginator
 from django.shortcuts import get_object_or_404
 from django.views.generic import TemplateView, View
 
@@ -72,7 +73,13 @@ class IncomeReportView(RoleRequiredMixin, TemplateView):
             term_id=term_id if term_id else None,
         )
 
+        paginator = Paginator(data["payments"], 25)
+        page_number = self.request.GET.get("page", 1)
+        page_obj = paginator.get_page(page_number)
+
         context["report"] = data
+        context["page_obj"] = page_obj
+        context["is_paginated"] = page_obj.has_other_pages()
         context["terms"] = Term.unscoped.filter(
             institution_id=self.request.institution_id
         ).order_by("session__start_date", "start_date")
@@ -124,7 +131,15 @@ class OutstandingFeesReportView(RoleRequiredMixin, TemplateView):
             term_id=term_id if term_id else None,
         )
 
+        paginator = Paginator(data["assignments"], 25)
+        page_number = self.request.GET.get("page", 1)
+        page_obj = paginator.get_page(page_number)
+
         context["report"] = data
+        context["page_obj"] = page_obj
+        context["is_paginated"] = page_obj.has_other_pages()
+        context["selected_class_id"] = class_id
+        context["selected_term_id"] = term_id
         context["classes"] = Class.unscoped.filter(
             institution_id=self.request.institution_id,
             status=ClassStatus.ACTIVE,

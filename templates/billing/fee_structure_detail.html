@@ -24,10 +24,28 @@ per-student adjustment view. The edit link disappears.
       </p>
     </div>
     {% if can_manage %}
-      <div class="quick-actions">
-        {% if not fee_structure.locked %}
-          <a class="btn btn--secondary" href="{% url 'billing:fee_structure_edit' fee_structure.pk %}">Edit</a>
-        {% endif %}
+      <div class="quick-actions" style="display:flex; align-items:center; gap:var(--space-2); flex-wrap:wrap;">
+        <a class="btn btn--secondary" href="{% url 'billing:fee_structure_edit' fee_structure.pk %}">Edit</a>
+        
+        <form method="post" action="{% url 'billing:fee_structure_toggle_lock' fee_structure.pk %}" style="display:inline;">
+          {% csrf_token %}
+          <button type="submit" class="btn btn--secondary" title="{% if fee_structure.locked %}Unlock fee structure{% else %}Lock fee structure{% endif %}">
+            {% if fee_structure.locked %}
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:4px;">
+                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                <path d="M7 11V7a5 5 0 0 1 9.9-1"></path>
+              </svg>
+              Unlock
+            {% else %}
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:4px;">
+                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+              </svg>
+              Lock
+            {% endif %}
+          </button>
+        </form>
+
         <a class="btn btn--secondary" href="{% url 'billing:fee_assignment_list' fee_structure.pk %}">
           Student assignments ({{ assignment_count }})
         </a>
@@ -37,12 +55,9 @@ per-student adjustment view. The edit link disappears.
   </div>
 
   {% if fee_structure.locked %}
-    <div class="card" style="border-left: 3px solid var(--color-warning, #e6a817);">
-      <p>
-        <strong>This fee structure is locked</strong> because at least one payment
-        has been recorded against it. To make a correction, adjust
-        <a href="{% url 'billing:fee_assignment_list' fee_structure.pk %}">individual student assignments</a>
-        instead.
+    <div class="card" style="border-left: 3px solid var(--color-warning, #e6a817); background:var(--color-bg-surface);">
+      <p style="margin:0; font-size:var(--text-sm);">
+        <strong>Note on locked fee structures:</strong> Payments have been recorded against this fee package. You can still safely <a href="{% url 'billing:fee_structure_edit' fee_structure.pk %}"><strong>edit the fee items</strong></a> or <a href="{% url 'billing:fee_assignment_list' fee_structure.pk %}">adjust individual students</a> — historical payments and receipts will stay fully protected.
       </p>
     </div>
   {% endif %}

@@ -18,6 +18,7 @@ import logging
 from io import BytesIO
 
 from django.contrib import messages
+from django.core.paginator import Paginator
 from django.db import DatabaseError
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
@@ -170,23 +171,45 @@ class BulkImportPreviewView(RoleRequiredMixin, View):
             messages.info(request, "That import has already been committed.")
             return redirect("students:list")
 
-        rows = list(
-            BulkImportRow.objects.filter(batch=batch).order_by(
-                "sheet_name", "row_number"
-            )
+        all_rows_qs = BulkImportRow.objects.filter(batch=batch)
+        total_count = all_rows_qs.count()
+        valid_count = all_rows_qs.filter(
+            validation_status=RowValidationStatus.VALID
+        ).count()
+        error_count = total_count - valid_count
+
+        # Get list of distinct sheet names in this batch
+        sheets = list(
+            all_rows_qs.values_list("sheet_name", flat=True)
+            .distinct()
+            .order_by("sheet_name")
         )
-        valid_count = sum(
-            1 for row in rows if row.validation_status == RowValidationStatus.VALID
-        )
+
+        selected_sheet = request.GET.get("sheet", "").strip()
+        rows_qs = all_rows_qs
+        if selected_sheet:
+            rows_qs = rows_qs.filter(sheet_name=selected_sheet)
+
+        rows_qs = rows_qs.order_by("sheet_name", "row_number")
+
+        paginator = Paginator(rows_qs, 25)
+        page_number = request.GET.get("page", 1)
+        page_obj = paginator.get_page(page_number)
+
         return render(
             request,
             self.template_name,
             {
                 "batch": batch,
-                "rows": rows,  # template regroups by sheet_name
+                "rows": page_obj.object_list,
+                "page_obj": page_obj,
+                "paginator": paginator,
+                "is_paginated": page_obj.has_other_pages(),
+                "sheets": sheets,
+                "selected_sheet": selected_sheet,
                 "valid_count": valid_count,
-                "error_count": len(rows) - valid_count,
-                "total_count": len(rows),
+                "error_count": error_count,
+                "total_count": total_count,
             },
         )
 
@@ -196,16 +219,51 @@ class BulkImportPreviewView(RoleRequiredMixin, View):
             messages.info(request, "That import has already been committed.")
             return redirect("students:list")
 
-        # Persist the manager's selection onto the valid rows before committing.
-        # commit_import reads selected_for_commit, so this is what makes the
-        # checkboxes authoritative. Only digit ids are trusted; anything else in
-        # the POST is ignored rather than raising.
-        selected_ids = [pk for pk in request.POST.getlist("rows") if pk.isdigit()]
-        valid = BulkImportRow.objects.filter(
-            batch=batch, validation_status=RowValidationStatus.VALID
+        action = request.POST.get("action", "commit")
+
+        if action == "select_all_ready":
+            BulkImportRow.objects.filter(
+                batch=batch, validation_status=RowValidationStatus.VALID
+            ).update(selected_for_commit=True)
+            messages.success(request, "All valid students selected for import.")
+            return redirect(
+                f"{request.path}?sheet={request.POST.get('sheet', '')}&page={request.POST.get('page', '1')}"
+            )
+        elif action == "deselect_all":
+            BulkImportRow.objects.filter(
+                batch=batch, validation_status=RowValidationStatus.VALID
+            ).update(selected_for_commit=False)
+            messages.info(request, "All students unselected.")
+            return redirect(
+                f"{request.path}?sheet={request.POST.get('sheet', '')}&page={request.POST.get('page', '1')}"
+            )
+
+        # Persist the manager's selection onto the displayed valid rows
+        displayed_ids = [
+            pk for pk in request.POST.getlist("displayed_row_ids") if pk.isdigit()
+        ]
+        selected_ids = set(
+            pk for pk in request.POST.getlist("rows") if pk.isdigit()
         )
-        valid.exclude(pk__in=selected_ids).update(selected_for_commit=False)
-        valid.filter(pk__in=selected_ids).update(selected_for_commit=True)
+        if displayed_ids:
+            valid_displayed = BulkImportRow.objects.filter(
+                batch=batch,
+                pk__in=displayed_ids,
+                validation_status=RowValidationStatus.VALID,
+            )
+            valid_displayed.filter(pk__in=selected_ids).update(
+                selected_for_commit=True
+            )
+            valid_displayed.exclude(pk__in=selected_ids).update(
+                selected_for_commit=False
+            )
+        else:
+            # Fallback: if no displayed_ids sent, update matching valid rows
+            valid = BulkImportRow.objects.filter(
+                batch=batch, validation_status=RowValidationStatus.VALID
+            )
+            valid.exclude(pk__in=selected_ids).update(selected_for_commit=False)
+            valid.filter(pk__in=selected_ids).update(selected_for_commit=True)
 
         try:
             created = commit_import(

@@ -40,6 +40,11 @@ urlpatterns = [
         name="fee_structure_delete",
     ),
     path(
+        "fee-structures/<int:pk>/toggle-lock/",
+        views.FeeStructureToggleLockView.as_view(),
+        name="fee_structure_toggle_lock",
+    ),
+    path(
         "fee-structures/<int:pk>/assignments/",
         views.FeeAssignmentListView.as_view(),
         name="fee_assignment_list",

@@ -29,7 +29,7 @@ def search_all(*, institution_id, query, is_bursar=False):
     if not query:
         return {"students": [], "payments": [], "receipts": [], "total_count": 0}
 
-    # 1. Students
+    # 1. Students (strictly matching student names and admission numbers)
     students_qs = Student.unscoped.filter(
         institution_id=institution_id,
     ).filter(
@@ -37,8 +37,6 @@ def search_all(*, institution_id, query, is_bursar=False):
         | Q(middle_name__icontains=query)
         | Q(last_name__icontains=query)
         | Q(admission_number__icontains=query)
-        | Q(guardian_name__icontains=query)
-        | Q(guardian_phone__icontains=query)
     ).order_by("first_name", "last_name")[:20]
 
     student_results = []

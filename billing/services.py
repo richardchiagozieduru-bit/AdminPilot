@@ -145,22 +145,13 @@ def update_fee_structure(
     actor,
     ip_address=None,
 ):
-    """Update a fee structure's name and items. Rejected if locked.
-
-    `items` replaces the existing set entirely — delete-and-recreate, since item
-    identity is not meaningful (they have no outside references once payments
-    point at the assignment, not the item).
-
-    Also updates unadjusted StudentFeeAssignments — those still at the old total
-    get moved to the new total. Any assignment that was individually adjusted
-    (has a non-empty adjustment_reason) is left alone.
+    """Update a fee structure's name and items.
+    
+    Safe for both open and locked fee structures. When payments already exist,
+    all historical payments, receipts, and payment allocations remain completely
+    intact. Student assignments without individual overrides will have their
+    amount_due synchronized with the new total.
     """
-    if fee_structure.locked:
-        raise ValidationError(
-            "This fee structure is locked because at least one payment has been "
-            "recorded against it. Adjust individual student assignments instead."
-        )
-
     old_total = fee_structure.total_amount
 
     # Replace items
@@ -199,6 +190,34 @@ def update_fee_structure(
         ip_address=ip_address,
     )
 
+    return fee_structure
+
+
+@transaction.atomic
+def toggle_fee_structure_lock(
+    *,
+    fee_structure,
+    actor,
+    ip_address=None,
+):
+    """Toggle a fee structure's locked status between open and locked with audit log."""
+    new_status = not fee_structure.locked
+    fee_structure.locked = new_status
+    fee_structure.save(update_fields=["locked"])
+
+    action = "fee_structure.locked" if new_status else "fee_structure.unlocked"
+    status_str = "locked" if new_status else "unlocked"
+
+    write_audit_log(
+        institution_id=fee_structure.institution_id,
+        actor=actor,
+        action=action,
+        summary=f"Fee structure '{fee_structure.name}' was marked as {status_str}.",
+        target_type="FeeStructure",
+        target_id=str(fee_structure.pk),
+        detail={"locked": new_status},
+        ip_address=ip_address,
+    )
     return fee_structure
 
 
