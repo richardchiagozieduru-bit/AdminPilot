@@ -154,17 +154,39 @@ def update_fee_structure(
     """
     old_total = fee_structure.total_amount
 
-    # Replace items
-    fee_structure.items.all().delete()
+    # Update or add items non-destructively so PaymentItemAllocations remain valid
+    existing_items = {item.name.strip().lower(): item for item in fee_structure.items.all()}
     new_total = Decimal("0.00")
+    processed_keys = set()
+
     for item in items:
-        FeeStructureItem.unscoped.create(
-            institution_id=fee_structure.institution_id,
-            fee_structure=fee_structure,
-            name=item["name"],
-            amount=item["amount"],
-        )
-        new_total += item["amount"]
+        item_name = item["name"].strip()
+        item_amount = item["amount"]
+        key = item_name.lower()
+        new_total += item_amount
+        processed_keys.add(key)
+
+        if key in existing_items:
+            existing = existing_items[key]
+            existing.name = item_name
+            existing.amount = item_amount
+            existing.save(update_fields=["name", "amount"])
+        else:
+            FeeStructureItem.unscoped.create(
+                institution_id=fee_structure.institution_id,
+                fee_structure=fee_structure,
+                name=item_name,
+                amount=item_amount,
+            )
+
+    # Clean up or zero items removed from the structure
+    for key, existing in existing_items.items():
+        if key not in processed_keys:
+            if existing.allocations.exists():
+                existing.amount = Decimal("0.00")
+                existing.save(update_fields=["amount"])
+            else:
+                existing.delete()
 
     fee_structure.name = name
     fee_structure.total_amount = new_total
