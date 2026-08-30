@@ -77,7 +77,7 @@ class RegistrationPendingView(TemplateView):
 class InstitutionLoginView(auth_views.LoginView):
     template_name = "accounts/login.html"
     authentication_form = InstitutionLoginForm
-    redirect_authenticated_user = True
+    redirect_authenticated_user = False
 
     def form_valid(self, form):
         with institution_db_context(form.get_user().institution_id):

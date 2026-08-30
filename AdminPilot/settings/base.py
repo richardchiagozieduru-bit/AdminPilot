@@ -217,6 +217,13 @@ LOGIN_URL = "/login/"
 LOGIN_REDIRECT_URL = "/"
 LOGOUT_REDIRECT_URL = "/login/"
 
+# --- Session & Security ---------------------------------------------------
+# Auto-expire session when browser is closed to protect school data on shared computers
+SESSION_EXPIRE_AT_BROWSER_CLOSE = True
+SESSION_COOKIE_AGE = 86400  # 24 hours max session while browser remains open
+SESSION_COOKIE_HTTPONLY = True
+SESSION_SAVE_EVERY_REQUEST = True
+
 
 # --- Internationalization -------------------------------------------------
 #
