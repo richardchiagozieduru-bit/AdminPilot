@@ -41,7 +41,7 @@ Class Detail Hub — Enrolled students roster, fee structures, and class status 
   </div>
 
   <!-- Class Statistics / Summary Cards -->
-  <div class="card" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:var(--space-4); background:var(--color-bg-subtle, #f8fafc); border-left:4px solid var(--color-primary, #2563eb); margin-bottom:var(--space-4);">
+  <div class="card" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:var(--space-4); background:var(--color-bg-subtle, #f8fafc); border:1px solid var(--color-border); margin-bottom:var(--space-4);">
     <div>
       <span style="font-size:var(--text-xs); font-weight:var(--weight-semibold); text-transform:uppercase; color:var(--color-text-muted);">Current Enrolled Students</span>
       <div style="font-size:var(--text-2xl); font-family:var(--font-mono); font-weight:800; color:var(--color-text);">
@@ -125,7 +125,7 @@ Class Detail Hub — Enrolled students roster, fee structures, and class status 
         <p class="card__hint" style="margin-top:2px;">Active students currently enrolled in {{ klass.name }}.</p>
       </div>
       {% if can_manage %}
-        <a class="btn btn--primary btn--sm" href="{% url 'students:create' %}?klass_id={{ klass.pk }}">+ Enrol New Student</a>
+        <a class="btn btn--primary btn--sm" href="{% url 'students:add' %}?klass_id={{ klass.pk }}">+ Enrol New Student</a>
       {% endif %}
     </div>
 
@@ -172,7 +172,7 @@ Class Detail Hub — Enrolled students roster, fee structures, and class status 
               <td colspan="5" class="table__empty">
                 No active students currently enrolled in this class.
                 {% if can_manage %}
-                  <a href="{% url 'students:create' %}?klass_id={{ klass.pk }}">Enrol a student.</a>
+                  <a href="{% url 'students:add' %}?klass_id={{ klass.pk }}">Enrol a student.</a>
                 {% endif %}
               </td>
             </tr>

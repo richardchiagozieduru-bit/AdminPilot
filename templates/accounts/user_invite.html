@@ -19,7 +19,7 @@ Displays the generated setup link upon submit so the Owner can copy and share it
   </div>
 
   {% if setup_link %}
-    <div class="card" style="border-left: 4px solid var(--color-success, #2e7d32);">
+    <div class="card" style="border:1px solid var(--color-border); background:var(--color-bg-subtle);">
       <h2 class="card__title">Setup link generated for {{ invited_user.full_name }}</h2>
       <p>Share this unique link with <strong>{{ invited_user.email }}</strong> so they can set their password and activate their account:</p>
       

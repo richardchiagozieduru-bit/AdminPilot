@@ -17,9 +17,9 @@ Payment reversal form — reason required (docs/04_Permission_Matrix.md).
     </div>
   </div>
 
-  <div class="card" style="border-left: 3px solid var(--color-danger, #d32f2f);">
+  <div class="card" style="border:1px solid var(--color-border); background:var(--color-bg-subtle);">
     <p>
-      <strong>This action cannot be undone.</strong>
+      <strong style="color:var(--color-danger);">This action cannot be undone.</strong>
       Reversing this payment will restore the student's outstanding balance.
       {% if payment.credit_transactions.exists %}
         Any overpayment credit generated from this payment will also be reversed.

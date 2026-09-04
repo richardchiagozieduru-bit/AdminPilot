@@ -25,9 +25,9 @@ Payment detail (docs/03_Views_and_Endpoints.md: /payments/<id>/).
   </div>
 
   {% if payment.status == 'reversed' %}
-    <div class="card" style="border-left: 3px solid var(--color-danger, #d32f2f);">
+    <div class="card" style="border:1px solid var(--color-border); background:var(--color-bg-subtle);">
       <p>
-        <strong>This payment has been reversed.</strong><br>
+        <strong style="color:var(--color-danger);">This payment has been reversed.</strong><br>
         Reason: {{ payment.reversal_reason }}<br>
         Reversed at: {{ payment.reversed_at|date:"M j, Y H:i" }}
       </p>
