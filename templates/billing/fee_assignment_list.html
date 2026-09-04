@@ -41,22 +41,31 @@ adjustments after the structure is locked (docs/02_Database.md).
             <tr>
               <td><strong>{{ assignment.student.full_name }}</strong></td>
               <td>{{ assignment.student.admission_number }}</td>
-              <td style="text-align:right;">{{ assignment.amount_due }}</td>
-              <td style="text-align:right;">{{ assignment.outstanding_balance }}</td>
+              <td style="text-align:right; font-family:var(--font-mono);">₦{{ assignment.amount_due }}</td>
+              <td style="text-align:right; font-family:var(--font-mono);">
+                {% if assignment.is_paid_in_full %}
+                  <span class="badge badge--success">Paid in Full</span>
+                {% else %}
+                  <strong>₦{{ assignment.outstanding_balance }}</strong>
+                {% endif %}
+              </td>
               <td>
                 {% if assignment.adjustment_reason %}
-                  <span class="badge badge--info" title="{{ assignment.adjustment_reason }}">Yes</span>
+                  <span class="badge badge--info" title="{{ assignment.adjustment_reason }}">Customized</span>
                 {% else %}
-                  —
+                  <span style="color:var(--color-text-muted);">Standard</span>
                 {% endif %}
               </td>
               <td>
-                {% if can_manage %}
-                  <a class="btn btn--link" href="{% url 'billing:fee_assignment_adjust' assignment.pk %}">Adjust</a>
-                {% endif %}
-                <a class="btn btn--link" href="{% url 'students:detail' assignment.student.pk %}">Profile</a>
+                <div style="display:flex; gap:var(--space-2); align-items:center;">
+                  {% if can_manage %}
+                    <a class="btn btn--secondary btn--sm" href="{% url 'billing:fee_assignment_customize' assignment.pk %}" style="padding:2px 8px; font-size:var(--text-xs);">Customize Package</a>
+                  {% endif %}
+                  <a class="btn btn--link btn--sm" href="{% url 'students:payments' assignment.student.pk %}">Ledger</a>
+                </div>
               </td>
             </tr>
+
           {% empty %}
             <tr>
               <td colspan="6" class="table__empty">No students assigned to this fee structure.</td>

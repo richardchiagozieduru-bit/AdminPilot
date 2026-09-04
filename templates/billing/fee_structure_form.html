@@ -79,8 +79,9 @@
         <table class="table" id="itemsTable">
           <thead>
             <tr>
-              <th scope="col" style="width:55%;">Item Name</th>
-              <th scope="col" style="width:35%; text-align:right;">Amount (₦)</th>
+              <th scope="col" style="width:50%;">Item Name</th>
+              <th scope="col" style="width:25%; text-align:right;">Amount (₦)</th>
+              <th scope="col" style="width:15%; text-align:center;">Mandatory</th>
               {% if formset.can_delete %}
                 <th scope="col" style="width:10%; text-align:center;">Remove</th>
               {% endif %}
@@ -106,8 +107,11 @@
                     </ul>
                   {% endif %}
                 </td>
+                <td style="text-align:center; vertical-align:middle;">
+                  <input type="checkbox" name="{{ item_form.is_mandatory.html_name }}" id="{{ item_form.is_mandatory.auto_id }}" {% if item_form.is_mandatory.value or item_form.is_mandatory.value is None %}checked{% endif %} style="width:18px; height:18px; cursor:pointer;" title="Mandatory fee for all students">
+                </td>
                 {% if formset.can_delete %}
-                  <td style="text-align:center;">
+                  <td style="text-align:center; vertical-align:middle;">
                     {{ item_form.DELETE }}
                   </td>
                 {% endif %}
@@ -116,6 +120,7 @@
           </tbody>
         </table>
       </div>
+
 
       <!-- Add more items toolbar -->
       <div style="margin-top: var(--space-3); display: flex; justify-content: flex-start;">
@@ -198,10 +203,14 @@
         <td style="text-align:right;">
           <input type="number" step="0.01" name="${prefix}-${formIdx}-amount" id="id_${prefix}-${formIdx}-amount" value="" class="form-input item-amount-input" placeholder="0.00" style="text-align:right; font-family:var(--font-mono); width:100%;" oninput="recalcPackageTotal()">
         </td>
-        <td style="text-align:center;">
+        <td style="text-align:center; vertical-align:middle;">
+          <input type="checkbox" name="${prefix}-${formIdx}-is_mandatory" id="id_${prefix}-${formIdx}-is_mandatory" value="True" checked style="width:18px; height:18px; cursor:pointer;" title="Mandatory fee for all students">
+        </td>
+        <td style="text-align:center; vertical-align:middle;">
           <input type="checkbox" name="${prefix}-${formIdx}-DELETE" id="id_${prefix}-${formIdx}-DELETE" style="display:none;">
           <button type="button" class="btn btn--link" style="color:var(--color-danger, #dc2626); padding:0; font-size:14px;" onclick="removeDynamicRow(this)" title="Remove item">✕</button>
         </td>
+
       `;
       tbody.appendChild(tr);
 

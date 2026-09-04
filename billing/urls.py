@@ -49,17 +49,42 @@ urlpatterns = [
         views.FeeAssignmentListView.as_view(),
         name="fee_assignment_list",
     ),
-    # Fee Assignments
+    path(
+        "fee-structures/<int:pk>/sync-assignments/",
+        views.FeeStructureSyncAssignmentsView.as_view(),
+        name="fee_structure_sync_assignments",
+    ),
+    # Fee Assignments & Individual Student Packages
     path(
         "fee-assignments/<int:pk>/adjust/",
         views.FeeAssignmentAdjustView.as_view(),
         name="fee_assignment_adjust",
+    ),
+    path(
+        "fee-assignments/<int:pk>/customize/",
+        views.StudentFeePackageCustomizeView.as_view(),
+        name="fee_assignment_customize",
+    ),
+    path(
+        "students/<int:student_id>/fee-package/create/",
+        views.StudentFeePackageCustomizeView.as_view(),
+        name="student_fee_package_create",
+    ),
+    path(
+        "fee-assignments/<int:pk>/apply-credit/",
+        views.StudentCreditApplyView.as_view(),
+        name="fee_assignment_apply_credit",
     ),
     # Payments
     path(
         "payments/",
         views.PaymentListView.as_view(),
         name="payment_list",
+    ),
+    path(
+        "payments/export/",
+        views.PaymentExportCSVView.as_view(),
+        name="payment_export_csv",
     ),
     path(
         "payments/add/",
@@ -82,6 +107,11 @@ urlpatterns = [
         views.StudentCreditView.as_view(),
         name="student_credit",
     ),
+    path(
+        "students/<int:pk>/credit/apply/",
+        views.StudentCreditApplyView.as_view(),
+        name="student_credit_apply",
+    ),
     # Receipts
     path(
         "receipts/<int:pk>/",
@@ -89,3 +119,4 @@ urlpatterns = [
         name="receipt_detail",
     ),
 ]
+

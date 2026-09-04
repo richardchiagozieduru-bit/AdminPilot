@@ -81,8 +81,10 @@ field-level Bursar restriction lives on the profile, not here.
         <tbody>
           {% for student in students %}
             <tr>
-              <td><strong>{{ student.full_name }}</strong></td>
-              <td>{{ student.admission_number }}</td>
+              <td>
+                <strong><a href="{% url 'students:detail' student.pk %}">{{ student.full_name }}</a></strong>
+              </td>
+              <td style="font-family:var(--font-mono);">{{ student.admission_number }}</td>
               <td>{{ student.current_class_name|default:"—" }}</td>
               <td>
                 {% if student.status == 'active' %}
@@ -92,13 +94,17 @@ field-level Bursar restriction lives on the profile, not here.
                 {% endif %}
               </td>
               <td>
-                <a class="btn btn--link" href="{% url 'students:detail' student.pk %}">View</a>
-                {% if can_manage %}
-                  <a class="btn btn--link" href="{% url 'students:edit' student.pk %}">Edit</a>
-                  <a class="btn btn--link" href="{% url 'students:delete' student.pk %}" style="color:var(--color-danger, #dc2626);">Delete</a>
-                {% endif %}
+                <div style="display:flex; gap:var(--space-1); align-items:center; justify-content:flex-end;">
+                  <a class="btn btn--secondary btn--sm" href="{% url 'students:payments' student.pk %}" style="padding:2px 8px; font-size:var(--text-xs);">Fees / Ledger</a>
+                  <a class="btn btn--link btn--sm" href="{% url 'students:detail' student.pk %}" style="padding:2px 6px; font-size:var(--text-xs);">Profile</a>
+                  {% if can_manage %}
+                    <a class="btn btn--link btn--sm" href="{% url 'students:edit' student.pk %}" style="padding:2px 6px; font-size:var(--text-xs);">Edit</a>
+                    <a class="btn btn--link btn--sm" href="{% url 'students:delete' student.pk %}" style="color:var(--color-danger, #dc2626); padding:2px 6px; font-size:var(--text-xs);">Delete</a>
+                  {% endif %}
+                </div>
               </td>
             </tr>
+
           {% empty %}
             <tr>
               <td colspan="5" class="table__empty">

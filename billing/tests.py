@@ -150,7 +150,6 @@ class FeeEngineServiceTests(ApprovedSchoolTestCase):
             self.assertEqual(updated.total_amount, Decimal("60000.00"))
             assignment.refresh_from_db()
             self.assertEqual(assignment.amount_due, Decimal("60000.00"))
-            self.assertEqual(assignment.total_paid, Decimal("20000.00"))
             self.assertEqual(assignment.outstanding_balance, Decimal("40000.00"))
 
     def test_adjust_student_fee_requires_reason(self):

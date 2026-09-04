@@ -17,7 +17,9 @@ app_name = "academic"
 urlpatterns = [
     path("classes/", views.ClassListView.as_view(), name="class_list"),
     path("classes/add/", views.ClassCreateView.as_view(), name="class_add"),
+    path("classes/<int:pk>/", views.ClassDetailView.as_view(), name="class_detail"),
     path("classes/<int:pk>/edit/", views.ClassUpdateView.as_view(), name="class_edit"),
+
     # POST only — see ClassStatusChangeView.
     path(
         "classes/<int:pk>/deactivate/",

@@ -127,21 +127,77 @@ they show is created in Phases 5 and 6. Enrollment History is real now.
     </div>
 
   {% elif active_tab == 'payments' %}
-    <div class="card" style="display:flex; justify-content:space-between; align-items:center; background:var(--color-brand-light, #e8ebf8); border-left:4px solid var(--color-brand, #2b3a8f);">
+    <div class="card" style="display:flex; justify-content:space-between; align-items:center; background:var(--color-brand-light, #e8ebf8); border-left:4px solid var(--color-brand, #2b3a8f); flex-wrap:wrap; gap:var(--space-3);">
       <div>
         <span style="font-size:var(--text-sm); font-weight:var(--weight-medium); color:var(--color-brand-dark);">Available Credit Balance</span>
         <div style="font-size:var(--text-2xl); font-weight:var(--weight-bold); font-family:var(--font-mono); color:var(--color-brand-dark); margin-top:var(--space-1);">
-          {{ credit_balance }}
+          ₦{{ student.credit_balance }}
         </div>
       </div>
-      <div>
-        <a class="btn btn--primary" href="{% url 'billing:student_credit' student.pk %}">View Credit Ledger</a>
+      <div style="display:flex; gap:var(--space-2); align-items:center;">
+        {% if student.credit_balance > 0 and can_manage %}
+          <button type="button" class="btn btn--primary" onclick="openCreditModal()">
+            ⚡ Apply Credit to Fees
+          </button>
+        {% endif %}
+        <a class="btn btn--secondary" href="{% url 'billing:student_credit' student.pk %}">View Credit Ledger</a>
       </div>
     </div>
 
+    <!-- Apply Credit Modal / Inline Dialog -->
+    {% if student.credit_balance > 0 and can_manage %}
+      <div id="creditApplyModal" class="card" style="display:none; border:2px solid var(--color-primary, #2563eb); background:var(--color-bg-subtle, #f8fafc); margin-bottom:var(--space-4);">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:var(--space-3);">
+          <h3 style="margin:0; font-size:var(--text-base); color:var(--color-text);">Apply Available Credit (₦{{ student.credit_balance }})</h3>
+          <button type="button" class="btn btn--link" onclick="closeCreditModal()" style="font-size:18px; color:var(--color-text-muted);">✕</button>
+        </div>
+        <form method="post" action="{% url 'billing:student_credit_apply' student.pk %}">
+          {% csrf_token %}
+          <input type="hidden" name="next" value="{{ request.path }}">
+          <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:var(--space-3); align-items:end;">
+            <div class="field" style="margin:0;">
+              <label class="field__label" for="credit_assignment">Target Fee Structure / Term</label>
+              <select name="assignment" id="credit_assignment" class="field__input" required>
+                {% for fa in fee_assignments %}
+                  {% if fa.outstanding_balance > 0 %}
+                    <option value="{{ fa.pk }}">{{ fa.fee_structure.name }} (Outstanding: ₦{{ fa.outstanding_balance }})</option>
+                  {% endif %}
+                {% endfor %}
+              </select>
+            </div>
+            <div class="field" style="margin:0;">
+              <label class="field__label" for="credit_amount">Amount to Apply (₦)</label>
+              <input type="number" step="0.01" min="0.01" max="{{ student.credit_balance }}" name="amount" id="credit_amount" class="field__input" value="{{ student.credit_balance }}" required style="font-family:var(--font-mono);">
+            </div>
+            <div>
+              <button type="submit" class="btn btn--primary" style="width:100%;">Confirm & Apply Credit</button>
+            </div>
+          </div>
+        </form>
+      </div>
+      <script>
+        function openCreditModal() {
+          var el = document.getElementById('creditApplyModal');
+          if (el) el.style.display = 'block';
+        }
+        function closeCreditModal() {
+          var el = document.getElementById('creditApplyModal');
+          if (el) el.style.display = 'none';
+        }
+      </script>
+    {% endif %}
+
     <div class="card">
-      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: var(--space-3);">
-        <h2 class="card__title" style="margin:0;">Fee Packages & Line-Item Breakdown</h2>
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: var(--space-3); flex-wrap:wrap; gap:var(--space-2);">
+        <div>
+          <h2 class="card__title" style="margin:0;">Fee Packages & Line-Item Breakdown</h2>
+          <p class="card__hint" style="margin-top:2px;">Billed structures and student-specific customized fee packages.</p>
+        </div>
+        {% if can_manage %}
+          <a class="btn btn--secondary btn--sm" href="{% url 'billing:student_fee_package_create' student.pk %}">
+            + Customize / Create Fee Package
+          </a>
+        {% endif %}
       </div>
       <div class="table-wrap">
         <table class="table">
@@ -159,12 +215,21 @@ they show is created in Phases 5 and 6. Enrollment History is real now.
           <tbody>
             {% for fa in fee_assignments %}
               <tr>
-                <td><strong>{{ fa.fee_structure.name }}</strong></td>
+                <td>
+                  <strong>{{ fa.fee_structure.name }}</strong>
+                  {% if fa.adjustment_reason %}
+                    <span class="badge badge--info" style="font-size:10px; margin-left:4px;" title="{{ fa.adjustment_reason }}">Customized</span>
+                  {% endif %}
+                </td>
                 <td>{{ fa.fee_structure.klass.name }}</td>
                 <td>{{ fa.fee_structure.term.name }}</td>
                 <td style="text-align:right; font-family: var(--font-mono);">₦{{ fa.amount_due }}</td>
-                <td style="text-align:right; font-family: var(--font-mono); font-weight:700; color:{% if fa.outstanding_balance > 0 %}var(--color-danger, #d32f2f){% else %}var(--color-success, #16a34a){% endif %};">
-                  ₦{{ fa.outstanding_balance }}
+                <td style="text-align:right; font-family: var(--font-mono); font-weight:700;">
+                  {% if fa.is_paid_in_full %}
+                    <span class="badge badge--success">Paid in Full</span>
+                  {% else %}
+                    <span style="color:var(--color-danger, #d32f2f);">₦{{ fa.outstanding_balance }}</span>
+                  {% endif %}
                 </td>
                 <td style="text-align:center;">
                   <button type="button" class="btn btn--secondary btn--sm" onclick="toggleBreakdown('breakdown-{{ fa.pk }}')" style="padding:2px 8px; font-size:var(--text-xs);">
@@ -172,39 +237,56 @@ they show is created in Phases 5 and 6. Enrollment History is real now.
                   </button>
                 </td>
                 <td style="text-align:right;">
-                  {% if fa.outstanding_balance > 0 %}
-                    <a class="btn btn--primary btn--sm" href="{% url 'billing:payment_create' %}?assignment_id={{ fa.pk }}" style="padding:2px 10px; font-size:var(--text-xs); font-weight:600;">
-                      ⚡ Pay
-                    </a>
-                  {% else %}
-                    <span class="badge badge--success" style="font-size:10px;">Cleared</span>
-                  {% endif %}
+                  <div style="display:inline-flex; gap:var(--space-1); align-items:center;">
+                    {% if can_manage %}
+                      <a class="btn btn--secondary btn--sm" href="{% url 'billing:fee_assignment_customize' fa.pk %}" style="padding:2px 8px; font-size:var(--text-xs);">
+                        Customize
+                      </a>
+                    {% endif %}
+                    {% if fa.outstanding_balance > 0 %}
+                      <a class="btn btn--primary btn--sm" href="{% url 'billing:payment_create' %}?assignment_id={{ fa.pk }}" style="padding:2px 10px; font-size:var(--text-xs); font-weight:600;">
+                        ⚡ Pay
+                      </a>
+                    {% endif %}
+                  </div>
                 </td>
               </tr>
               <!-- Expandable Line Item Breakdown Row -->
               <tr id="breakdown-{{ fa.pk }}" style="display:none; background: var(--color-bg-subtle, #f8fafc);">
-                <td colspan="6" style="padding: var(--space-3) var(--space-4);">
+                <td colspan="7" style="padding: var(--space-3) var(--space-4);">
                   <div style="background: var(--color-surface, #fff); border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: var(--space-3);">
-                    <div style="font-size:var(--text-xs); font-weight:700; text-transform:uppercase; color:var(--color-text-muted); margin-bottom:var(--space-2);">
-                      Itemized Settlement Status
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:var(--space-2);">
+                      <div style="font-size:var(--text-xs); font-weight:700; text-transform:uppercase; color:var(--color-text-muted);">
+                        Itemized Settlement Status
+                      </div>
+                      {% if fa.adjustment_reason %}
+                        <div style="font-size:var(--text-xs); color:var(--color-text-muted);">
+                          <strong>Adjustment Reason:</strong> {{ fa.adjustment_reason }}
+                        </div>
+                      {% endif %}
                     </div>
                     <table class="table table--compact" style="width:100%; margin:0;">
                       <thead>
                         <tr>
                           <th>Item Name</th>
-                          <th style="text-align:right;">Billed</th>
-                          <th style="text-align:right;">Paid to Date</th>
-                          <th style="text-align:right;">Balance</th>
+                          <th style="text-align:right;">Billed (₦)</th>
+                          <th style="text-align:right;">Paid to Date (₦)</th>
+                          <th style="text-align:right;">Balance (₦)</th>
                           <th style="text-align:center;">Status</th>
                         </tr>
                       </thead>
                       <tbody>
                         {% for item in fa.get_item_breakdown %}
                           <tr>
-                            <td><strong>{{ item.name }}</strong></td>
+                            <td>
+                              <strong>{{ item.name }}</strong>
+                              {% if item.status_label == 'Exempted' %}
+                                <span class="badge badge--muted" style="font-size:10px;">Exempted</span>
+                              {% endif %}
+                            </td>
                             <td style="text-align:right; font-family: var(--font-mono);">₦{{ item.billed }}</td>
                             <td style="text-align:right; font-family: var(--font-mono);">₦{{ item.paid }}</td>
-                            <td style="text-align:right; font-family: var(--font-mono);">₦{{ item.remaining }}</td>
+                            <td style="text-align:right; font-family: var(--font-mono); font-weight:600;">₦{{ item.remaining }}</td>
                             <td style="text-align:center;">
                               <span class="badge {{ item.badge_class }}">{{ item.status_label }}</span>
                             </td>
@@ -216,12 +298,13 @@ they show is created in Phases 5 and 6. Enrollment History is real now.
                 </td>
               </tr>
             {% empty %}
-              <tr><td colspan="6" class="table__empty">No fee assignments.</td></tr>
+              <tr><td colspan="7" class="table__empty">No fee assignments.</td></tr>
             {% endfor %}
           </tbody>
         </table>
       </div>
     </div>
+
 
     <div class="card">
       <h2 class="card__title">Payments</h2>

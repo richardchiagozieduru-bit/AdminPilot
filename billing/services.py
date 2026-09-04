@@ -38,9 +38,34 @@ from .models import (
     PaymentStatus,
     Receipt,
     StudentFeeAssignment,
+    StudentFeeItem,
 )
 
 logger = logging.getLogger(__name__)
+
+
+# --------------------------------------------------------------------------- #
+# Helpers
+# --------------------------------------------------------------------------- #
+def _populate_student_fee_items(assignment):
+    """Populate default StudentFeeItem rows from the parent FeeStructure items."""
+    for item in assignment.fee_structure.items.all():
+        if not StudentFeeItem.unscoped.filter(
+            assignment=assignment,
+            fee_structure_item=item,
+        ).exists():
+            StudentFeeItem.unscoped.create(
+                institution_id=assignment.institution_id,
+                assignment=assignment,
+                fee_structure_item=item,
+                name=item.name,
+                amount=item.amount,
+                original_amount=item.amount,
+                is_mandatory=item.is_mandatory,
+                is_included=True,
+                adjustment_type="standard",
+                discount_amount=Decimal("0.00"),
+            )
 
 
 # --------------------------------------------------------------------------- #
@@ -60,12 +85,8 @@ def create_fee_structure(
 ):
     """Create a FeeStructure with its itemized lines and auto-assign enrolled students.
 
-    `items` is a list of dicts: [{"name": "Tuition", "amount": Decimal("50000")}, ...]
-
-    Auto-assignment (docs/03_Views_and_Endpoints.md): creates a
-    StudentFeeAssignment for every student currently enrolled in this
-    class/session/term. The deferred import avoids the circular dependency
-    documented in students/services.py's module docstring.
+    `items` is a list of dicts:
+      [{"name": "Tuition", "amount": Decimal("50000"), "is_mandatory": True}, ...]
     """
     total = sum(item["amount"] for item in items)
 
@@ -84,40 +105,80 @@ def create_fee_structure(
             fee_structure=structure,
             name=item["name"],
             amount=item["amount"],
+            is_mandatory=item.get("is_mandatory", True),
         )
 
     # Auto-assign enrolled students
-    from students.models import StudentEnrollment
+    from students.models import Student, StudentEnrollment, StudentStatus
 
-    enrollments = StudentEnrollment.unscoped.filter(
+    # 1. Exact term enrollments
+    term_enrollments = StudentEnrollment.unscoped.filter(
         institution_id=institution_id,
         klass=klass,
         session=session,
         term=term,
+        student__status=StudentStatus.ACTIVE,
     ).select_related("student")
 
-    # Only assign once per student — if a student has multiple enrollments in the
-    # same class/session/term (e.g. from a class change and back), take the
-    # latest and create one assignment.
-    seen_students = set()
+    assigned_students = set()
     assignments_created = 0
-    for enrollment in enrollments:
-        if enrollment.student_id in seen_students:
-            continue
-        seen_students.add(enrollment.student_id)
 
-        # Don't double-assign if somehow already present
-        if not StudentFeeAssignment.unscoped.filter(
+    for enrollment in term_enrollments:
+        if enrollment.student_id in assigned_students:
+            continue
+        assigned_students.add(enrollment.student_id)
+
+        assignment, created = StudentFeeAssignment.unscoped.get_or_create(
             institution_id=institution_id,
             student=enrollment.student,
             fee_structure=structure,
+            defaults={"amount_due": total},
+        )
+        if created:
+            _populate_student_fee_items(assignment)
+            assignments_created += 1
+
+    # 2. Also find active students currently in this class (whose latest enrollment in the session is this class)
+    all_class_enrollments = (
+        StudentEnrollment.unscoped.filter(
+            institution_id=institution_id,
+            klass=klass,
+            session=session,
+            student__status=StudentStatus.ACTIVE,
+        )
+        .select_related("student")
+        .order_by("-enrolled_at")
+    )
+
+    for enrollment in all_class_enrollments:
+        if enrollment.student_id in assigned_students:
+            continue
+        assigned_students.add(enrollment.student_id)
+
+        # Create enrollment for the term if not present
+        if not StudentEnrollment.unscoped.filter(
+            institution_id=institution_id,
+            student=enrollment.student,
+            session=session,
+            term=term,
         ).exists():
-            StudentFeeAssignment.unscoped.create(
+            StudentEnrollment.unscoped.create(
                 institution_id=institution_id,
                 student=enrollment.student,
-                fee_structure=structure,
-                amount_due=total,
+                klass=klass,
+                session=session,
+                term=term,
+                enrolled_by=actor,
             )
+
+        assignment, created = StudentFeeAssignment.unscoped.get_or_create(
+            institution_id=institution_id,
+            student=enrollment.student,
+            fee_structure=structure,
+            defaults={"amount_due": total},
+        )
+        if created:
+            _populate_student_fee_items(assignment)
             assignments_created += 1
 
     write_audit_log(
@@ -137,6 +198,88 @@ def create_fee_structure(
 
 
 @transaction.atomic
+def sync_fee_structure_assignments(
+    *,
+    fee_structure: FeeStructure,
+    actor,
+    ip_address=None,
+) -> int:
+    """Explicitly assign all unassigned active students in this class/session/term to this structure.
+
+    Returns the count of newly assigned students.
+    """
+    from students.models import StudentEnrollment, StudentStatus
+
+    institution_id = fee_structure.institution_id
+    klass = fee_structure.klass
+    session = fee_structure.session
+    term = fee_structure.term
+    total = fee_structure.total_amount
+
+    # Find active students whose latest enrollment or session enrollment is this class
+    class_enrollments = (
+        StudentEnrollment.unscoped.filter(
+            institution_id=institution_id,
+            klass=klass,
+            session=session,
+            student__status=StudentStatus.ACTIVE,
+        )
+        .select_related("student")
+        .order_by("-enrolled_at")
+    )
+
+    seen = set()
+    assignments_created = 0
+
+    for enrollment in class_enrollments:
+        if enrollment.student_id in seen:
+            continue
+        seen.add(enrollment.student_id)
+
+        # Ensure enrollment for this term exists
+        if not StudentEnrollment.unscoped.filter(
+            institution_id=institution_id,
+            student=enrollment.student,
+            session=session,
+            term=term,
+        ).exists():
+            StudentEnrollment.unscoped.create(
+                institution_id=institution_id,
+                student=enrollment.student,
+                klass=klass,
+                session=session,
+                term=term,
+                enrolled_by=actor,
+            )
+
+        if not StudentFeeAssignment.unscoped.filter(
+            institution_id=institution_id,
+            student=enrollment.student,
+            fee_structure=fee_structure,
+        ).exists():
+            assignment = StudentFeeAssignment.unscoped.create(
+                institution_id=institution_id,
+                student=enrollment.student,
+                fee_structure=fee_structure,
+                amount_due=total,
+            )
+            _populate_student_fee_items(assignment)
+            assignments_created += 1
+
+    write_audit_log(
+        institution_id=institution_id,
+        actor=actor,
+        action="fee_structure.synced",
+        summary=f"Synced fee assignments for '{fee_structure.name}': assigned {assignments_created} student(s)",
+        target_type="FeeStructure",
+        target_id=str(fee_structure.pk),
+        detail={"assignments_created": assignments_created},
+        ip_address=ip_address,
+    )
+    return assignments_created
+
+
+@transaction.atomic
 def update_fee_structure(
     *,
     fee_structure,
@@ -146,7 +289,7 @@ def update_fee_structure(
     ip_address=None,
 ):
     """Update a fee structure's name and items.
-    
+
     Safe for both open and locked fee structures. When payments already exist,
     all historical payments, receipts, and payment allocations remain completely
     intact. Student assignments without individual overrides will have their
@@ -162,6 +305,7 @@ def update_fee_structure(
     for item in items:
         item_name = item["name"].strip()
         item_amount = item["amount"]
+        is_mandatory = item.get("is_mandatory", True)
         key = item_name.lower()
         new_total += item_amount
         processed_keys.add(key)
@@ -170,13 +314,15 @@ def update_fee_structure(
             existing = existing_items[key]
             existing.name = item_name
             existing.amount = item_amount
-            existing.save(update_fields=["name", "amount"])
+            existing.is_mandatory = is_mandatory
+            existing.save(update_fields=["name", "amount", "is_mandatory"])
         else:
             FeeStructureItem.unscoped.create(
                 institution_id=fee_structure.institution_id,
                 fee_structure=fee_structure,
                 name=item_name,
                 amount=item_amount,
+                is_mandatory=is_mandatory,
             )
 
     # Clean up or zero items removed from the structure
@@ -195,11 +341,22 @@ def update_fee_structure(
     # Update unadjusted assignments — those whose amount_due still equals the
     # old total and have never been individually adjusted.
     if old_total != new_total:
-        StudentFeeAssignment.unscoped.filter(
+        unadjusted_assignments = StudentFeeAssignment.unscoped.filter(
             fee_structure=fee_structure,
             amount_due=old_total,
             adjustment_reason="",
-        ).update(amount_due=new_total)
+        )
+        for assignment in unadjusted_assignments:
+            assignment.amount_due = new_total
+            assignment.save(update_fields=["amount_due"])
+            # Update default StudentFeeItems if any
+            for item in fee_structure.items.all():
+                s_item = assignment.items.filter(fee_structure_item=item).first()
+                if s_item and s_item.adjustment_type == "standard":
+                    s_item.amount = item.amount
+                    s_item.original_amount = item.amount
+                    s_item.is_mandatory = item.is_mandatory
+                    s_item.save(update_fields=["amount", "original_amount", "is_mandatory"])
 
     write_audit_log(
         institution_id=fee_structure.institution_id,
@@ -213,6 +370,156 @@ def update_fee_structure(
     )
 
     return fee_structure
+
+
+@transaction.atomic
+def customize_student_fee_package(
+    *,
+    assignment: StudentFeeAssignment,
+    items_data: list[dict],
+    reason: str,
+    actor,
+    ip_address=None,
+) -> StudentFeeAssignment:
+    """Customize an individual student's fee package.
+
+    Allows toggling optional items, applying item-specific discounts/exemptions,
+    and adding additional custom fee lines with full audit trail.
+    Historical payments, receipts, and allocations remain completely intact.
+    """
+    if not reason.strip():
+        raise ValidationError("A reason is required for student fee package adjustments.")
+
+    old_amount = assignment.amount_due
+
+    # Delete existing items not referenced or recreate cleanly
+    assignment.items.all().delete()
+
+    new_total = Decimal("0.00")
+    recorded_items = []
+
+    for item_data in items_data:
+        is_included = item_data.get("is_included", True)
+        name = item_data.get("name", "").strip()
+        amount = Decimal(str(item_data.get("amount", "0.00")))
+        orig_amount = Decimal(str(item_data.get("original_amount", str(amount))))
+        discount = Decimal(str(item_data.get("discount_amount", "0.00")))
+        is_mandatory = item_data.get("is_mandatory", True)
+        adj_type = item_data.get("adjustment_type", "standard")
+        notes = item_data.get("notes", "").strip()
+        fsi_id = item_data.get("fee_structure_item_id")
+
+        if not name:
+            continue
+
+        # Effective amount billed is 0 if excluded
+        effective_amount = amount if is_included else Decimal("0.00")
+        if is_included:
+            new_total += effective_amount
+
+        fsi = None
+        if fsi_id:
+            try:
+                fsi = FeeStructureItem.objects.get(pk=fsi_id)
+            except FeeStructureItem.DoesNotExist:
+                pass
+
+        StudentFeeItem.unscoped.create(
+            institution_id=assignment.institution_id,
+            assignment=assignment,
+            fee_structure_item=fsi,
+            name=name,
+            amount=effective_amount,
+            original_amount=orig_amount,
+            is_mandatory=is_mandatory,
+            is_included=is_included,
+            adjustment_type=adj_type,
+            discount_amount=discount,
+            notes=notes,
+        )
+        recorded_items.append({
+            "name": name,
+            "amount": str(effective_amount),
+            "is_included": is_included,
+            "adjustment_type": adj_type,
+            "discount": str(discount),
+        })
+
+    assignment.amount_due = new_total
+    assignment.adjustment_reason = reason
+    assignment.adjusted_at = timezone.now()
+    assignment.save(update_fields=["amount_due", "adjustment_reason", "adjusted_at"])
+
+    write_audit_log(
+        institution_id=assignment.institution_id,
+        actor=actor,
+        action="fee_package.customized",
+        summary=f"Customized fee package for {assignment.student.full_name}: {old_amount} → {new_total}",
+        target_type="StudentFeeAssignment",
+        target_id=str(assignment.pk),
+        reason=reason,
+        detail={
+            "old_amount": str(old_amount),
+            "new_amount": str(new_total),
+            "items": recorded_items,
+        },
+        ip_address=ip_address,
+    )
+
+    return assignment
+
+
+@transaction.atomic
+def apply_student_credit(
+    *,
+    student,
+    assignment: StudentFeeAssignment,
+    amount: Decimal,
+    actor,
+    ip_address=None,
+) -> CreditTransaction:
+    """Directly apply available credit from the student's credit ledger to an outstanding fee assignment."""
+    if amount <= Decimal("0.00"):
+        raise ValidationError("Credit amount to apply must be greater than zero.")
+
+    if student.credit_balance < amount:
+        raise ValidationError(
+            f"Cannot apply ₦{amount}. Student only has ₦{student.credit_balance} available credit."
+        )
+
+    outstanding = assignment.outstanding_balance
+    if amount > outstanding:
+        raise ValidationError(
+            f"Cannot apply ₦{amount}. Outstanding balance on this fee assignment is ₦{outstanding}."
+        )
+
+    credit_tx = CreditTransaction.unscoped.create(
+        institution_id=student.institution_id,
+        amount=-amount,
+        applied_to_assignment=assignment,
+    )
+
+    student.credit_balance -= amount
+    student.save(update_fields=["credit_balance"])
+
+    write_audit_log(
+        institution_id=student.institution_id,
+        actor=actor,
+        action="credit.applied",
+        summary=f"Applied ₦{amount} credit for {student.full_name} to {assignment.fee_structure.name}",
+        target_type="CreditTransaction",
+        target_id=str(credit_tx.pk),
+        detail={
+            "amount": str(amount),
+            "assignment_id": assignment.pk,
+            "student_id": student.pk,
+            "remaining_credit": str(student.credit_balance),
+        },
+        ip_address=ip_address,
+    )
+
+    return credit_tx
+
 
 
 @transaction.atomic

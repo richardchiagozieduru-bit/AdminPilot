@@ -136,12 +136,17 @@ def _assign_active_fee_structure(student, *, klass, session, term):
     if existing is not None:
         return existing
 
-    return StudentFeeAssignment.unscoped.create(
+    from billing.services import _populate_student_fee_items
+
+    assignment = StudentFeeAssignment.unscoped.create(
         institution_id=student.institution_id,
         student=student,
         fee_structure=structure,
         amount_due=structure.total_amount,
     )
+    _populate_student_fee_items(assignment)
+    return assignment
+
 
 
 # --------------------------------------------------------------------------- #

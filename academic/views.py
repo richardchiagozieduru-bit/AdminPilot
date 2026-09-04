@@ -18,7 +18,14 @@ from django.db import DatabaseError, transaction
 from django.db.models import Count, Q
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse_lazy
-from django.views.generic import CreateView, ListView, TemplateView, UpdateView, View
+from django.views.generic import (
+    CreateView,
+    DetailView,
+    ListView,
+    TemplateView,
+    UpdateView,
+    View,
+)
 
 from core.mixins import AuditedFormMixin, RoleRequiredMixin, TenantScopedQuerysetMixin
 from core.services import write_audit_log
@@ -71,6 +78,63 @@ class ClassListView(RoleRequiredMixin, TenantScopedQuerysetMixin, ListView):
             1 for klass in context["classes"] if klass.status == ClassStatus.ACTIVE
         )
         return context
+
+
+class ClassDetailView(RoleRequiredMixin, TenantScopedQuerysetMixin, DetailView):
+    """`/classes/<id>/` — class hub showing enrolled students, fee structures, and actions."""
+
+    model = Class
+    template_name = "academic/class_detail.html"
+    context_object_name = "klass"
+    module = "classes"
+
+    def get_context_data(self, **kwargs):
+        from billing.models import FeeStructure
+        from students.models import StudentEnrollment, StudentStatus
+
+        context = super().get_context_data(**kwargs)
+        klass = self.object
+        current_term = Term.objects.filter(
+            institution_id=self.request.institution_id, is_current=True
+        ).first()
+        current_session = Session.objects.filter(
+            institution_id=self.request.institution_id, is_current=True
+        ).first()
+
+        enrollment_filter = Q(
+            institution_id=self.request.institution_id,
+            klass=klass,
+            student__status=StudentStatus.ACTIVE,
+        )
+        if current_session:
+            enrollment_filter &= Q(session=current_session)
+
+        enrollments = (
+            StudentEnrollment.unscoped.filter(enrollment_filter)
+            .select_related("student", "session", "term")
+            .order_by("student__last_name", "student__first_name")
+        )
+        seen_student_ids = set()
+        unique_enrollments = []
+        for enr in enrollments:
+            if enr.student_id not in seen_student_ids:
+                seen_student_ids.add(enr.student_id)
+                unique_enrollments.append(enr)
+
+        context["enrollments"] = unique_enrollments
+        context["student_count"] = len(unique_enrollments)
+        context["current_term"] = current_term
+        context["current_session"] = current_session
+        context["fee_structures"] = (
+            FeeStructure.objects.filter(
+                institution_id=self.request.institution_id, klass=klass
+            )
+            .select_related("session", "term")
+            .order_by("-created_at")
+        )
+        context["can_manage"] = self.can_manage()
+        return context
+
 
 
 class ClassFormKwargsMixin:

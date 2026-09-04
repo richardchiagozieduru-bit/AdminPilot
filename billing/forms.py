@@ -62,9 +62,16 @@ class FeeStructureForm(forms.ModelForm):
 
 
 class FeeStructureItemForm(forms.ModelForm):
+    is_mandatory = forms.BooleanField(
+        required=False,
+        initial=True,
+        label="Mandatory",
+        help_text="Uncheck if this is an optional fee item (e.g. transport, excursion).",
+    )
+
     class Meta:
         model = FeeStructureItem
-        fields = ("name", "amount")
+        fields = ("name", "amount", "is_mandatory")
 
     def clean_amount(self):
         amount = self.cleaned_data.get("amount")
@@ -94,7 +101,7 @@ FeeStructureItemFormSet = inlineformset_factory(
     FeeStructureItem,
     form=FeeStructureItemForm,
     formset=BaseFeeStructureItemFormSet,
-    fields=("name", "amount"),
+    fields=("name", "amount", "is_mandatory"),
     extra=3,
     can_delete=True,
     min_num=1,
@@ -122,6 +129,59 @@ class StudentFeeAdjustmentForm(forms.Form):
         if not reason:
             raise forms.ValidationError("A reason is required for fee adjustments.")
         return reason
+
+
+class ApplyCreditForm(forms.Form):
+    """Apply available credit to an outstanding student fee assignment."""
+
+    assignment = forms.ModelChoiceField(
+        queryset=StudentFeeAssignment.objects.none(),
+        label="Fee Assignment / Term",
+        empty_label="Select fee assignment",
+    )
+    amount = forms.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        min_value=Decimal("0.01"),
+        label="Credit Amount to Apply",
+    )
+
+    def __init__(self, *args, student=None, institution_id=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.student = student
+        if student and institution_id:
+            self.fields["assignment"].queryset = (
+                StudentFeeAssignment.objects.filter(
+                    institution_id=institution_id,
+                    student=student,
+                )
+                .select_related("fee_structure", "fee_structure__klass", "fee_structure__term")
+                .order_by("-created_at")
+            )
+            self.fields["assignment"].label_from_instance = lambda obj: (
+                f"{obj.fee_structure.name} ({obj.fee_structure.term.name}) — ₦{obj.outstanding_balance} outstanding"
+            )
+
+    def clean_amount(self):
+        amount = self.cleaned_data.get("amount")
+        if self.student and amount:
+            if amount > self.student.credit_balance:
+                raise forms.ValidationError(
+                    f"Amount cannot exceed available credit (₦{self.student.credit_balance})."
+                )
+        return amount
+
+    def clean(self):
+        cleaned_data = super().clean()
+        assignment = cleaned_data.get("assignment")
+        amount = cleaned_data.get("amount")
+        if assignment and amount:
+            if amount > assignment.outstanding_balance:
+                raise forms.ValidationError(
+                    f"Amount cannot exceed the assignment's outstanding balance (₦{assignment.outstanding_balance})."
+                )
+        return cleaned_data
+
 
 
 class PaymentForm(forms.Form):
