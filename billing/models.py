@@ -58,6 +58,7 @@ class FeeStructureItem(TenantScopedModel):
     )
     name = models.CharField(max_length=100)
     amount = models.DecimalField(max_digits=12, decimal_places=2)
+    is_mandatory = models.BooleanField(default=True)
 
     class Meta:
         db_table = "fee_structure_items"
@@ -108,6 +109,20 @@ class StudentFeeAssignment(TenantScopedModel):
         return f"{student_str} — {fee_str}"
 
     @property
+    def total_paid(self):
+        """Active payments plus applied credit on this fee assignment."""
+        active_payments = self.payments.filter(status=PaymentStatus.ACTIVE)
+        paid = active_payments.order_by().aggregate(total=models.Sum("amount"))[
+            "total"
+        ] or Decimal("0.00")
+        applied_credits = abs(
+            self.applied_credits.order_by().aggregate(total=models.Sum("amount"))[
+                "total"
+            ] or Decimal("0.00")
+        )
+        return paid + applied_credits
+
+    @property
     def outstanding_balance(self):
         """docs/02_Database.md: amount_due − (payments − positive credit
         sourced from those payments) + applied_credits (which are negative).
@@ -126,11 +141,19 @@ class StudentFeeAssignment(TenantScopedModel):
         applied_credits = self.applied_credits.order_by().aggregate(
             total=models.Sum("amount")
         )["total"] or Decimal("0.00")
-        return self.amount_due - (paid - credited_back - applied_credits)
+        balance = self.amount_due - (paid - credited_back - applied_credits)
+        return max(Decimal("0.00"), balance)
+
+    @property
+    def is_paid_in_full(self):
+        """Returns True if outstanding balance is 0 and either payments exist or fee was 0."""
+        return self.outstanding_balance == Decimal("0.00") and (
+            self.total_paid > Decimal("0.00") or self.amount_due == Decimal("0.00")
+        )
 
     def get_item_breakdown(self):
-        """Returns a list of dicts for each FeeStructureItem under this assignment's
-        fee structure, calculating how much has been paid to date, the remaining amount,
+        """Returns a list of dicts for each FeeStructureItem / StudentFeeItem under this assignment,
+        calculating how much has been paid to date, the remaining amount,
         and settlement status ('paid', 'partial', 'unpaid').
         """
         active_payments = self.payments.filter(status=PaymentStatus.ACTIVE)
@@ -155,9 +178,24 @@ class StudentFeeAssignment(TenantScopedModel):
 
         breakdown = []
         remaining_unallocated = unallocated_paid
-        for item in self.fee_structure.items.all():
-            direct_paid = paid_map.get(item.pk, Decimal("0.00"))
-            billed = item.amount
+
+        # If student-specific customized items exist, use them; otherwise use fee structure items
+        if self.items.exists():
+            item_list = [
+                (s_item.fee_structure_item_id or s_item.pk, s_item.name, s_item.amount, s_item.is_included, s_item)
+                for s_item in self.items.all()
+            ]
+        else:
+            item_list = [
+                (item.pk, item.name, item.amount, True, item)
+                for item in self.fee_structure.items.all()
+            ]
+
+        for item_key, item_name, billed, is_included, raw_item in item_list:
+            if not is_included:
+                continue
+
+            direct_paid = paid_map.get(item_key, Decimal("0.00"))
 
             # Waterfall fallback for legacy payments
             fallback_applied = Decimal("0.00")
@@ -184,9 +222,9 @@ class StudentFeeAssignment(TenantScopedModel):
                 badge_class = "badge--danger"
 
             breakdown.append({
-                "fee_item": item,
-                "fee_item_id": item.pk,
-                "name": item.name,
+                "fee_item": raw_item,
+                "fee_item_id": item_key,
+                "name": item_name,
                 "billed": billed,
                 "paid": total_item_paid,
                 "remaining": remaining,
@@ -195,6 +233,45 @@ class StudentFeeAssignment(TenantScopedModel):
                 "badge_class": badge_class,
             })
         return breakdown
+
+
+class StudentFeeItem(TenantScopedModel):
+    """An individual line item assigned to a specific student.
+
+    Allows per-student exemptions, scholarships/discounts, optional item toggling,
+    and custom additional fee lines.
+    """
+
+    assignment = models.ForeignKey(
+        StudentFeeAssignment, on_delete=models.CASCADE, related_name="items"
+    )
+    fee_structure_item = models.ForeignKey(
+        FeeStructureItem,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="student_items",
+    )
+    name = models.CharField(max_length=100)
+    amount = models.DecimalField(max_digits=12, decimal_places=2)
+    original_amount = models.DecimalField(
+        max_digits=12, decimal_places=2, default=Decimal("0.00")
+    )
+    is_mandatory = models.BooleanField(default=True)
+    is_included = models.BooleanField(default=True)
+    adjustment_type = models.CharField(max_length=20, default="standard")
+    discount_amount = models.DecimalField(
+        max_digits=12, decimal_places=2, default=Decimal("0.00")
+    )
+    notes = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "student_fee_items"
+        ordering = ("id",)
+
+    def __str__(self):
+        return f"{self.name} — {self.amount} ({self.adjustment_type})"
 
 
 class PaymentMethod(models.TextChoices):
