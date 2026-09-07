@@ -285,6 +285,105 @@ def delete_student(
     return {"action": "deleted", "student_name": student_name}
 
 
+@transaction.atomic
+def bulk_delete_students(
+    *,
+    institution_id,
+    student_ids,
+    keep_financial_records=False,
+    actor,
+    ip_address=None,
+):
+    """Bulk delete or archive multiple students.
+
+    institution_id: guarantees tenant isolation.
+    student_ids: list of student primary keys.
+    keep_financial_records:
+      - If True: sets student status to 'inactive' (soft archive), preserving all financial & enrollment records.
+      - If False: permanently purges selected students, their fee assignments, payments, receipts,
+        allocations, and enrollments.
+    Writes a single summarizing AuditLog entry (matching the pattern of bulk_import).
+    """
+    students = list(
+        Student.unscoped.filter(
+            institution_id=institution_id,
+            pk__in=student_ids,
+        )
+    )
+    if not students:
+        return {"action": "none", "count": 0, "students": []}
+
+    count = len(students)
+    student_pks = [s.pk for s in students]
+
+    if keep_financial_records:
+        Student.unscoped.filter(
+            institution_id=institution_id,
+            pk__in=student_pks,
+        ).update(status="inactive", updated_at=timezone.now())
+
+        write_audit_log(
+            institution_id=institution_id,
+            actor=actor,
+            action="student.bulk_archived",
+            summary=f"Bulk archived {count} student{'s' if count != 1 else ''} to preserve financial records",
+            target_type="Student",
+            target_id=str(student_pks[0]) if count == 1 else "bulk",
+            detail={"count": count, "student_ids": student_pks},
+            ip_address=ip_address,
+        )
+        return {"action": "archived", "count": count, "students": students}
+
+    from billing.models import (
+        CreditTransaction,
+        Payment,
+        PaymentItemAllocation,
+        Receipt,
+        StudentFeeAssignment,
+    )
+
+    # 1. Cleanly delete payment item allocations, receipts, payments for these students
+    assignments = StudentFeeAssignment.unscoped.filter(
+        institution_id=institution_id,
+        student_id__in=student_pks,
+    )
+    assignment_ids = list(assignments.values_list("pk", flat=True))
+
+    payments = Payment.unscoped.filter(assignment_id__in=assignment_ids)
+    payment_ids = list(payments.values_list("pk", flat=True))
+
+    PaymentItemAllocation.unscoped.filter(payment_id__in=payment_ids).delete()
+    CreditTransaction.unscoped.filter(source_payment_id__in=payment_ids).delete()
+    CreditTransaction.unscoped.filter(applied_to_assignment_id__in=assignment_ids).delete()
+    Receipt.unscoped.filter(payment_id__in=payment_ids).delete()
+    payments.delete()
+    assignments.delete()
+
+    # 2. Cleanly delete enrollments
+    StudentEnrollment.unscoped.filter(
+        institution_id=institution_id,
+        student_id__in=student_pks,
+    ).delete()
+
+    # 3. Cleanly delete student profiles
+    Student.unscoped.filter(
+        institution_id=institution_id,
+        pk__in=student_pks,
+    ).delete()
+
+    write_audit_log(
+        institution_id=institution_id,
+        actor=actor,
+        action="student.bulk_deleted",
+        summary=f"Bulk deleted {count} student{'s' if count != 1 else ''} and purged all associated records",
+        target_type="Student",
+        target_id=str(student_pks[0]) if count == 1 else "bulk",
+        detail={"count": count, "student_ids": student_pks},
+        ip_address=ip_address,
+    )
+    return {"action": "deleted", "count": count, "students": students}
+
+
 
 # --------------------------------------------------------------------------- #
 # Bulk import functions

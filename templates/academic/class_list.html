@@ -79,6 +79,9 @@ that would 403 on click.
                         <button type="submit" class="btn btn--link btn--sm" style="color:var(--color-primary, #2563eb); padding:2px 4px; font-size:var(--text-xs);">Reactivate</button>
                       </form>
                     {% endif %}
+                    {% if not klass.student_count %}
+                      <a class="btn btn--link btn--sm" href="{% url 'academic:class_delete' klass.pk %}" style="color:var(--color-danger, #dc2626); padding:2px 4px; font-size:var(--text-xs);">Delete</a>
+                    {% endif %}
                   </div>
                 </td>
               {% endif %}

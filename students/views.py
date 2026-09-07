@@ -38,7 +38,12 @@ from core.services import write_audit_log
 
 from .forms import StudentForm
 from .models import Student, StudentEnrollment, StudentStatus
-from .services import change_student_class, create_student, delete_student
+from .services import (
+    bulk_delete_students,
+    change_student_class,
+    create_student,
+    delete_student,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -568,4 +573,123 @@ class StudentDeleteView(RoleRequiredMixin, TenantScopedQuerysetMixin, TemplateVi
                 request, "Something went wrong deleting the student record."
             )
             return redirect("students:detail", pk=student.pk)
+
+
+class StudentBulkDeleteView(RoleRequiredMixin, TenantScopedQuerysetMixin, View):
+    """`/students/bulk-delete/` — bulk archive or purge selected students."""
+
+    template_name = "students/student_bulk_confirm_delete.html"
+    module = "students"
+    module_action = "manage"
+
+    def get(self, request, *args, **kwargs):
+        messages.info(request, "Select one or more students to perform bulk actions.")
+        return redirect("students:list")
+
+    def post(self, request, *args, **kwargs):
+        from django.shortcuts import render
+
+        # Final execution after confirmation
+        if "confirm_bulk_action" in request.POST:
+            raw_ids = request.POST.getlist("student_ids")
+            if not raw_ids and request.POST.get("student_ids_csv"):
+                raw_ids = [pk.strip() for pk in request.POST.get("student_ids_csv").split(",") if pk.strip()]
+
+            if not raw_ids:
+                messages.warning(request, "No students were selected.")
+                return redirect("students:list")
+
+            try:
+                student_ids = [int(pk) for pk in raw_ids]
+            except ValueError:
+                messages.error(request, "Invalid student IDs provided.")
+                return redirect("students:list")
+
+            action_type = request.POST.get("action_type", "archive")
+            keep_financial_records = (action_type == "archive")
+
+            try:
+                result = bulk_delete_students(
+                    institution_id=request.institution_id,
+                    student_ids=student_ids,
+                    keep_financial_records=keep_financial_records,
+                    actor=request.user,
+                    ip_address=request.META.get("REMOTE_ADDR"),
+                )
+                count = result["count"]
+                if result["action"] == "deleted":
+                    messages.success(
+                        request,
+                        f"Successfully deleted {count} student{'s' if count != 1 else ''} and purged all associated records.",
+                    )
+                elif result["action"] == "archived":
+                    messages.success(
+                        request,
+                        f"Successfully archived {count} student{'s' if count != 1 else ''} to preserve financial ledgers.",
+                    )
+                else:
+                    messages.warning(request, "No students were modified.")
+            except DatabaseError:
+                logger.exception("Bulk student deletion/archiving failed for institution %s", request.institution_id)
+                messages.error(request, "A database error occurred during the bulk operation. Please try again.")
+
+            return redirect("students:list")
+
+        # Initial submit from student list to review / confirm
+        raw_ids = request.POST.getlist("selected_students")
+        if not raw_ids:
+            messages.warning(request, "Please select at least one student before applying bulk actions.")
+            return redirect("students:list")
+
+        try:
+            student_ids = [int(pk) for pk in raw_ids]
+        except ValueError:
+            messages.error(request, "Invalid student IDs selected.")
+            return redirect("students:list")
+
+        students_qs = (
+            Student.objects.filter(
+                institution_id=request.institution_id,
+                pk__in=student_ids,
+            )
+            .prefetch_related("enrollments__klass", "fee_assignments__payments")
+            .order_by("last_name", "first_name")
+        )
+
+        student_list = []
+        students_with_payments = 0
+        total_payments = 0
+
+        for student in students_qs:
+            latest_enrollment = student.enrollments.order_by("-enrolled_at").first()
+            class_name = latest_enrollment.klass.name if latest_enrollment and latest_enrollment.klass else "—"
+
+            p_count = sum(assignment.payments.count() for assignment in student.fee_assignments.all())
+            a_count = student.fee_assignments.count()
+            if p_count > 0:
+                students_with_payments += 1
+                total_payments += p_count
+
+            student_list.append({
+                "pk": student.pk,
+                "full_name": student.full_name,
+                "admission_number": student.admission_number,
+                "class_name": class_name,
+                "status": student.status,
+                "payment_count": p_count,
+                "assignment_count": a_count,
+            })
+
+        if not student_list:
+            messages.warning(request, "None of the selected students could be found.")
+            return redirect("students:list")
+
+        context = {
+            "students": student_list,
+            "total_count": len(student_list),
+            "students_with_payments": students_with_payments,
+            "total_payments": total_payments,
+            "student_ids_csv": ",".join(str(s["pk"]) for s in student_list),
+        }
+        return render(request, self.template_name, context)
 

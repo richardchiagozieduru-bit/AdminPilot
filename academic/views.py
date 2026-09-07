@@ -16,7 +16,7 @@ import logging
 from django.contrib import messages
 from django.db import DatabaseError, transaction
 from django.db.models import Count, Q
-from django.shortcuts import get_object_or_404, redirect
+from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse_lazy
 from django.views.generic import (
     CreateView,
@@ -292,6 +292,72 @@ class ClassReactivateView(ClassStatusChangeView):
 
     def done_message(self, klass):
         return f"“{klass.name}” is active again."
+
+
+class ClassDeleteView(RoleRequiredMixin, TenantScopedQuerysetMixin, View):
+    """`/classes/<id>/delete/` — delete an empty class (0 enrollments and 0 fee structures)."""
+
+    template_name = "academic/class_confirm_delete.html"
+    module = "classes"
+    module_action = "manage"
+
+    def get_object(self):
+        return get_object_or_404(
+            Class.objects.filter(institution_id=self.request.institution_id),
+            pk=self.kwargs["pk"],
+        )
+
+    def get(self, request, *args, **kwargs):
+        klass = self.get_object()
+        enrollment_count = klass.enrollments.count()
+        fee_structure_count = klass.fee_structures.count()
+        is_deletable = (enrollment_count == 0 and fee_structure_count == 0)
+
+        context = {
+            "klass": klass,
+            "enrollment_count": enrollment_count,
+            "fee_structure_count": fee_structure_count,
+            "is_deletable": is_deletable,
+        }
+        return render(request, self.template_name, context)
+
+    def post(self, request, *args, **kwargs):
+        klass = self.get_object()
+        class_name = klass.name
+        enrollment_count = klass.enrollments.count()
+        fee_structure_count = klass.fee_structures.count()
+
+        if enrollment_count > 0 or fee_structure_count > 0:
+            messages.error(
+                request,
+                f"Cannot delete class “{class_name}” because it has "
+                f"{enrollment_count} student enrollment(s) and {fee_structure_count} fee structure(s). "
+                f"Deactivate the class instead to preserve historical records.",
+            )
+            return redirect("academic:class_detail", pk=klass.pk)
+
+        try:
+            with transaction.atomic():
+                write_audit_log(
+                    institution_id=request.institution_id,
+                    actor=request.user,
+                    action="class.deleted",
+                    summary=f"Deleted empty class {class_name}",
+                    target_type="Class",
+                    target_id=klass.pk,
+                    ip_address=request.META.get("REMOTE_ADDR"),
+                )
+                klass.delete()
+
+            messages.success(request, f"Class “{class_name}” was deleted.")
+            return redirect("academic:class_list")
+        except DatabaseError:
+            logger.exception("Failed to delete class %s", klass.pk)
+            messages.error(
+                request,
+                "Something went wrong deleting the class. Please try again.",
+            )
+            return redirect("academic:class_detail", pk=klass.pk)
 
 
 class AcademicStructureView(RoleRequiredMixin, TemplateView):

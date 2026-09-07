@@ -56,7 +56,7 @@ from students.models import (
     StudentEnrollment,
     StudentStatus,
 )
-from students.services import IMPORT_HEADERS, delete_student
+from students.services import IMPORT_HEADERS, bulk_delete_students, delete_student
 
 
 def other_school():
@@ -1147,4 +1147,122 @@ class StudentDeleteTests(ApprovedSchoolTestCase):
         self.assertRedirects(response, reverse("students:list"))
         with self.in_school():
             self.assertEqual(Student.objects.filter(pk=student.pk).count(), 0)
+
+
+class StudentBulkDeleteTests(ApprovedSchoolTestCase):
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        with institution_db_context(cls.institution.pk):
+            cls.owner = User.objects.get(email=cls.OWNER_EMAIL)
+            cls.session = Session.unscoped.create(
+                institution=cls.institution,
+                name="2026/2027",
+                start_date=SESSION_START,
+                end_date=SESSION_END,
+                is_current=True,
+            )
+            cls.term = Term.unscoped.create(
+                institution=cls.institution,
+                session=cls.session,
+                name="First Term",
+                start_date=TERM_START,
+                end_date=TERM_END,
+                is_current=True,
+            )
+            cls.klass = Class.unscoped.create(
+                institution=cls.institution, name="JSS 1", order=1
+            )
+
+    def _create_test_student(self, first_name="Student", last_name="Test"):
+        with self.in_school():
+            from students.services import create_student
+            student = Student(
+                first_name=first_name,
+                last_name=last_name,
+                gender=Gender.MALE,
+                date_of_birth=datetime.date(2014, 5, 12),
+                guardian_name="Parent Test",
+                guardian_phone="08031234567",
+            )
+            return create_student(
+                institution=self.institution,
+                student=student,
+                klass=self.klass,
+                session=self.session,
+                term=self.term,
+                actor=self.owner,
+            )
+
+    def test_bulk_archive_students(self):
+        s1 = self._create_test_student("Alice", "One")
+        s2 = self._create_test_student("Bob", "Two")
+        with self.in_school():
+            res = bulk_delete_students(
+                institution_id=self.institution.pk,
+                student_ids=[s1.pk, s2.pk],
+                keep_financial_records=True,
+                actor=self.owner,
+            )
+            self.assertEqual(res["action"], "archived")
+            self.assertEqual(res["count"], 2)
+            s1.refresh_from_db()
+            s2.refresh_from_db()
+            self.assertEqual(s1.status, StudentStatus.INACTIVE)
+            self.assertEqual(s2.status, StudentStatus.INACTIVE)
+            log = AuditLog.objects.filter(action="student.bulk_archived").first()
+            self.assertIsNotNone(log)
+            self.assertIn("2", log.summary)
+
+    def test_bulk_delete_students_purges_all(self):
+        s1 = self._create_test_student("Charlie", "Three")
+        s2 = self._create_test_student("David", "Four")
+        with self.in_school():
+            res = bulk_delete_students(
+                institution_id=self.institution.pk,
+                student_ids=[s1.pk, s2.pk],
+                keep_financial_records=False,
+                actor=self.owner,
+            )
+            self.assertEqual(res["action"], "deleted")
+            self.assertEqual(res["count"], 2)
+            self.assertEqual(Student.objects.filter(pk__in=[s1.pk, s2.pk]).count(), 0)
+            self.assertEqual(StudentEnrollment.objects.filter(student_id__in=[s1.pk, s2.pk]).count(), 0)
+            log = AuditLog.objects.filter(action="student.bulk_deleted").first()
+            self.assertIsNotNone(log)
+
+    def test_bulk_delete_view_flow(self):
+        s1 = self._create_test_student("Eve", "Five")
+        s2 = self._create_test_student("Frank", "Six")
+        self.sign_in_owner()
+        url = reverse("students:bulk_delete")
+
+        # Step 1: Initial POST from student list
+        resp = self.client.post(url, {"selected_students": [s1.pk, s2.pk]})
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, s1.full_name)
+        self.assertContains(resp, s2.full_name)
+
+        # Step 2: Final confirmation submit for clean-plate delete
+        confirm_resp = self.client.post(url, {
+            "confirm_bulk_action": "1",
+            "student_ids": [s1.pk, s2.pk],
+            "action_type": "delete",
+        })
+        self.assertRedirects(confirm_resp, reverse("students:list"))
+        with self.in_school():
+            self.assertEqual(Student.objects.filter(pk__in=[s1.pk, s2.pk]).count(), 0)
+
+    def test_bulk_delete_tenant_isolation(self):
+        other = other_school()
+        s1 = self._create_test_student("Grace", "Seven")
+        with self.in_school():
+            res = bulk_delete_students(
+                institution_id=other.pk,
+                student_ids=[s1.pk],
+                keep_financial_records=False,
+                actor=self.owner,
+            )
+            self.assertEqual(res["count"], 0)
+            self.assertEqual(Student.objects.filter(pk=s1.pk).count(), 1)
 

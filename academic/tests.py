@@ -751,6 +751,47 @@ class CreateClassesServiceTests(ApprovedSchoolTestCase):
         self.assertEqual(current, [other.pk])
 
 
+class ClassDeleteTests(ApprovedSchoolTestCase):
+    def setUp(self):
+        self.session, self.term, self.classes = self.configure_school()
+
+    def test_cannot_delete_class_with_enrolled_students(self):
+        self.enroll_a_student(self.classes[0], self.session, self.term)
+        self.sign_in_owner()
+        url = reverse("academic:class_delete", args=[self.classes[0].pk])
+
+        # GET shows warning that it is protected / not deletable
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, 200)
+        self.assertFalse(resp.context["is_deletable"])
+        self.assertContains(resp, "Cannot Delete Class")
+
+        # POST is blocked and redirected to detail
+        post_resp = self.client.post(url)
+        self.assertRedirects(post_resp, reverse("academic:class_detail", args=[self.classes[0].pk]))
+        with self.in_school():
+            self.assertTrue(Class.objects.filter(pk=self.classes[0].pk).exists())
+
+    def test_delete_empty_class_success(self):
+        empty_class = self.classes[1]  # JSS 1B has 0 students
+        self.sign_in_owner()
+        url = reverse("academic:class_delete", args=[empty_class.pk])
+
+        # GET shows confirmation form
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(resp.context["is_deletable"])
+
+        # POST deletes the class
+        post_resp = self.client.post(url)
+        self.assertRedirects(post_resp, reverse("academic:class_list"))
+        with self.in_school():
+            self.assertFalse(Class.objects.filter(pk=empty_class.pk).exists())
+            log = AuditLog.objects.filter(action="class.deleted").first()
+            self.assertIsNotNone(log)
+            self.assertIn("JSS 1B", log.summary)
+
+
 class AnonymousAccessTests(TestCase):
     """No screen in this app is public."""
 
@@ -760,6 +801,7 @@ class AnonymousAccessTests(TestCase):
             ("academic:class_add", ()),
             ("academic:structure", ()),
             ("academic:class_edit", (1,)),
+            ("academic:class_delete", (1,)),
         ):
             with self.subTest(url=name):
                 response = self.client.get(reverse(name, args=args))

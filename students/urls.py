@@ -37,6 +37,11 @@ urlpatterns = [
         imports.BulkImportPreviewView.as_view(),
         name="import_preview",
     ),
+    path(
+        "students/bulk-delete/",
+        views.StudentBulkDeleteView.as_view(),
+        name="bulk_delete",
+    ),
     # Profile tabs — one view each, all rendering student_detail.html.
     path("students/<int:pk>/", views.StudentDetailView.as_view(), name="detail"),
     path(

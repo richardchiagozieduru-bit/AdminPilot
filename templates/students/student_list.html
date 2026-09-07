@@ -66,65 +66,93 @@ field-level Bursar restriction lives on the profile, not here.
     </form>
   </div>
 
-  <div class="card">
-    <div class="table-wrap">
-      <table class="table">
-        <thead>
-          <tr>
-            <th scope="col">Name</th>
-            <th scope="col">Admission no.</th>
-            <th scope="col">Class</th>
-            <th scope="col">Status</th>
-            <th scope="col"><span class="visually-hidden">Actions</span></th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for student in students %}
+  <form method="post" action="{% url 'students:bulk_delete' %}" id="bulk-action-form">
+    {% csrf_token %}
+    <div class="card">
+      <div class="table-wrap">
+        <table class="table">
+          <thead>
             <tr>
-              <td>
-                <strong><a href="{% url 'students:detail' student.pk %}">{{ student.full_name }}</a></strong>
-              </td>
-              <td style="font-family:var(--font-mono);">{{ student.admission_number }}</td>
-              <td>{{ student.current_class_name|default:"—" }}</td>
-              <td>
-                {% if student.status == 'active' %}
-                  <span class="badge badge--success">Active</span>
-                {% else %}
-                  <span class="badge badge--muted">Archived</span>
-                {% endif %}
-              </td>
-              <td>
-                <div style="display:flex; gap:var(--space-1); align-items:center; justify-content:flex-end;">
-                  <a class="btn btn--secondary btn--sm" href="{% url 'students:payments' student.pk %}" style="padding:2px 8px; font-size:var(--text-xs);">Fees / Ledger</a>
-                  <a class="btn btn--link btn--sm" href="{% url 'students:detail' student.pk %}" style="padding:2px 6px; font-size:var(--text-xs);">Profile</a>
-                  {% if can_manage %}
-                    <a class="btn btn--link btn--sm" href="{% url 'students:edit' student.pk %}" style="padding:2px 6px; font-size:var(--text-xs);">Edit</a>
-                    <a class="btn btn--link btn--sm" href="{% url 'students:delete' student.pk %}" style="color:var(--color-danger, #dc2626); padding:2px 6px; font-size:var(--text-xs);">Delete</a>
-                  {% endif %}
-                </div>
-              </td>
+              {% if can_manage %}
+                <th scope="col" style="width: 38px; text-align: center;">
+                  <input type="checkbox" id="select-all-students" aria-label="Select all students" title="Select all on this page" style="cursor: pointer;">
+                </th>
+              {% endif %}
+              <th scope="col">Name</th>
+              <th scope="col">Admission no.</th>
+              <th scope="col">Class</th>
+              <th scope="col">Status</th>
+              <th scope="col"><span class="visually-hidden">Actions</span></th>
             </tr>
+          </thead>
+          <tbody>
+            {% for student in students %}
+              <tr>
+                {% if can_manage %}
+                  <td style="width: 38px; text-align: center;">
+                    <input type="checkbox" name="selected_students" value="{{ student.pk }}" class="student-checkbox" aria-label="Select {{ student.full_name }}" style="cursor: pointer;">
+                  </td>
+                {% endif %}
+                <td>
+                  <strong><a href="{% url 'students:detail' student.pk %}">{{ student.full_name }}</a></strong>
+                </td>
+                <td style="font-family:var(--font-mono);">{{ student.admission_number }}</td>
+                <td>{{ student.current_class_name|default:"—" }}</td>
+                <td>
+                  {% if student.status == 'active' %}
+                    <span class="badge badge--success">Active</span>
+                  {% else %}
+                    <span class="badge badge--muted">Archived</span>
+                  {% endif %}
+                </td>
+                <td>
+                  <div style="display:flex; gap:var(--space-1); align-items:center; justify-content:flex-end;">
+                    <a class="btn btn--secondary btn--sm" href="{% url 'students:payments' student.pk %}" style="padding:2px 8px; font-size:var(--text-xs);">Fees / Ledger</a>
+                    <a class="btn btn--link btn--sm" href="{% url 'students:detail' student.pk %}" style="padding:2px 6px; font-size:var(--text-xs);">Profile</a>
+                    {% if can_manage %}
+                      <a class="btn btn--link btn--sm" href="{% url 'students:edit' student.pk %}" style="padding:2px 6px; font-size:var(--text-xs);">Edit</a>
+                      <a class="btn btn--link btn--sm" href="{% url 'students:delete' student.pk %}" style="color:var(--color-danger, #dc2626); padding:2px 6px; font-size:var(--text-xs);">Delete</a>
+                    {% endif %}
+                  </div>
+                </td>
+              </tr>
 
-          {% empty %}
-            <tr>
-              <td colspan="5" class="table__empty">
-                {% if query or selected_class_id or selected_status != 'active' %}
-                  No students match these filters.
-                  <a href="{% url 'students:list' %}">Clear them.</a>
-                {% else %}
-                  No students yet.
-                  {% if can_manage %}
-                    <a href="{% url 'students:add' %}">Add your first one</a>
-                    or <a href="{% url 'students:import' %}">import a whole class</a>.
+            {% empty %}
+              <tr>
+                <td colspan="{% if can_manage %}6{% else %}5{% endif %}" class="table__empty">
+                  {% if query or selected_class_id or selected_status != 'active' %}
+                    No students match these filters.
+                    <a href="{% url 'students:list' %}">Clear them.</a>
+                  {% else %}
+                    No students yet.
+                    {% if can_manage %}
+                      <a href="{% url 'students:add' %}">Add your first one</a>
+                      or <a href="{% url 'students:import' %}">import a whole class</a>.
+                    {% endif %}
                   {% endif %}
-                {% endif %}
-              </td>
-            </tr>
-          {% endfor %}
-        </tbody>
-      </table>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
     </div>
-  </div>
+
+    {% if can_manage %}
+      <div id="batch-action-bar" style="display:none; position:sticky; bottom:var(--space-4); z-index:100; margin-top:var(--space-3); padding:var(--space-3) var(--space-4); background:#0f172a; color:#f8fafc; border-radius:var(--radius-md); box-shadow:0 10px 25px -5px rgba(0,0,0,0.25), 0 8px 10px -6px rgba(0,0,0,0.2); border:1px solid #334155; align-items:center; justify-content:space-between; gap:var(--space-3); flex-wrap:wrap;">
+        <div style="display:flex; align-items:center; gap:var(--space-2); font-size:var(--text-sm);">
+          <span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:#38bdf8;"></span>
+          <strong id="selected-count-label">0 students selected</strong>
+        </div>
+        <div style="display:flex; gap:var(--space-2); align-items:center;">
+          <button type="button" id="clear-selection-btn" class="btn btn--secondary btn--sm" style="background:rgba(255,255,255,0.12); color:#f8fafc; border-color:transparent;">Clear</button>
+          <button type="submit" class="btn btn--danger btn--sm" style="background:var(--color-danger, #dc2626); color:#fff; border-color:transparent; font-weight:600; padding:6px 14px;">
+            Bulk Actions (Archive / Delete)...
+          </button>
+        </div>
+      </div>
+    {% endif %}
+  </form>
 
   {% if is_paginated %}
     <div class="card" style="padding:var(--space-3) var(--space-4); margin-top:var(--space-4); display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:var(--space-3);">
@@ -145,5 +173,56 @@ field-level Bursar restriction lives on the profile, not here.
         {% endif %}
       </nav>
     </div>
+  {% endif %}
+
+  {% if can_manage %}
+    <script>
+      (function() {
+        var selectAll = document.getElementById('select-all-students');
+        var checkboxes = document.querySelectorAll('.student-checkbox');
+        var bar = document.getElementById('batch-action-bar');
+        var countLabel = document.getElementById('selected-count-label');
+        var clearBtn = document.getElementById('clear-selection-btn');
+
+        function updateBar() {
+          var checked = document.querySelectorAll('.student-checkbox:checked');
+          var count = checked.length;
+          if (count > 0) {
+            bar.style.display = 'flex';
+            countLabel.textContent = count + (count === 1 ? ' student selected' : ' students selected');
+          } else {
+            bar.style.display = 'none';
+          }
+          if (selectAll) {
+            selectAll.checked = (count > 0 && count === checkboxes.length);
+            selectAll.indeterminate = (count > 0 && count < checkboxes.length);
+          }
+        }
+
+        if (selectAll) {
+          selectAll.addEventListener('change', function() {
+            checkboxes.forEach(function(cb) {
+              cb.checked = selectAll.checked;
+            });
+            updateBar();
+          });
+        }
+
+        checkboxes.forEach(function(cb) {
+          cb.addEventListener('change', updateBar);
+        });
+
+        if (clearBtn) {
+          clearBtn.addEventListener('click', function() {
+            checkboxes.forEach(function(cb) { cb.checked = false; });
+            if (selectAll) {
+              selectAll.checked = false;
+              selectAll.indeterminate = false;
+            }
+            updateBar();
+          });
+        }
+      })();
+    </script>
   {% endif %}
 {% endblock %}

@@ -35,6 +35,9 @@ Class Detail Hub — Enrolled students roster, fee structures, and class status 
             <button type="submit" class="btn btn--primary">Reactivate</button>
           </form>
         {% endif %}
+        {% if student_count == 0 and fee_structures|length == 0 %}
+          <a class="btn btn--danger" href="{% url 'academic:class_delete' klass.pk %}" style="background:var(--color-danger-50, #fef2f2); color:var(--color-danger, #dc2626); border-color:var(--color-danger-200, #fecaca);">Delete Class</a>
+        {% endif %}
         <a class="btn btn--secondary" href="{% url 'academic:class_list' %}">← All Classes</a>
       </div>
     {% endif %}

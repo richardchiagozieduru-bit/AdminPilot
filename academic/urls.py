@@ -32,6 +32,11 @@ urlpatterns = [
         name="class_reactivate",
     ),
     path(
+        "classes/<int:pk>/delete/",
+        views.ClassDeleteView.as_view(),
+        name="class_delete",
+    ),
+    path(
         "settings/academic/",
         views.AcademicStructureView.as_view(),
         name="structure",
