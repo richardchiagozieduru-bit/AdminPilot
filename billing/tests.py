@@ -410,7 +410,7 @@ class BillingViewsAndPermissionsTests(ApprovedSchoolTestCase):
         response = self.client.get(reverse("billing:receipt_detail", kwargs={"pk": receipt.pk}))
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, receipt.receipt_number)
-        self.assertContains(response, "Print receipt")
+        self.assertContains(response, "Print Receipt")
 
     def test_student_profile_payment_tab_renders_real_data(self):
         with self.in_school():

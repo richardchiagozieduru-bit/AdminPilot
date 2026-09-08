@@ -15,128 +15,302 @@ hiding them.
 {% block content %}
   <div class="page-header">
     <div>
-      <h1>Academic structure</h1>
+      <h1>Academic Structure</h1>
       <p class="page-header__sub">
-        {% if current_term %}
-          Current: {{ current_term.session.name }} — {{ current_term.name }}
-        {% else %}
-          No current term set
-        {% endif %}
+        Manage your school's annual Academic Sessions and their sequential operating Terms.
       </p>
+    </div>
+    <div style="display:flex; gap:var(--space-2); flex-wrap:wrap;">
+      <button type="button" class="btn btn--secondary btn--sm" onclick="openSessionForm()">+ Add Session</button>
+      <button type="button" class="btn btn--primary btn--sm" onclick="openTermForm()">+ Add Term</button>
+    </div>
+  </div>
+
+  <!-- Educational Concept Card: Clear distinction between Sessions and Terms -->
+  <div class="card" style="background:var(--color-surface-subtle, #f8fafc); border-left: 4px solid var(--color-brand, #2563eb); margin-bottom:var(--space-5);">
+    <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:var(--space-4);">
+      <div style="flex:1; min-width:280px;">
+        <h3 style="margin:0 0 var(--space-1) 0; font-size:var(--text-base); font-weight:var(--weight-bold); color:var(--color-text);">
+          Distinction: Academic Sessions vs. Academic Terms
+        </h3>
+        <p style="margin:0; font-size:var(--text-sm); color:var(--color-text-muted); line-height:var(--leading-base);">
+          <strong>1. Academic Session:</strong> The overarching full school year (e.g. <em>2024/2025</em>). Defines the calendar year boundaries for the school.<br>
+          <strong>2. Academic Term:</strong> The operating periods within each session (e.g. <em>First Term, Second Term, Third Term</em>). Student enrollments, fee structures, and billing are recorded against a specific <strong>Term</strong>.
+        </p>
+      </div>
+      <div style="display:flex; gap:var(--space-3); flex-wrap:wrap;">
+        <div style="background:var(--color-surface, #ffffff); border:1px solid var(--color-border); border-radius:var(--radius-md); padding:var(--space-3) var(--space-4); min-width:180px;">
+          <span style="font-size:var(--text-xs); text-transform:uppercase; color:var(--color-text-muted); font-weight:var(--weight-semibold); display:block;">Current Session</span>
+          {% if current_session %}
+            <strong style="color:var(--color-text); font-size:var(--text-base); display:block;">{{ current_session.name }}</strong>
+            <span style="font-size:var(--text-xs); color:var(--color-text-muted); display:block;">{{ current_session.start_date|date:"j M Y" }} – {{ current_session.end_date|date:"j M Y" }}</span>
+          {% else %}
+            <span class="badge badge--warning" style="margin-top:2px;">None Set</span>
+          {% endif %}
+        </div>
+        <div style="background:var(--color-surface, #ffffff); border:1px solid var(--color-border); border-radius:var(--radius-md); padding:var(--space-3) var(--space-4); min-width:180px;">
+          <span style="font-size:var(--text-xs); text-transform:uppercase; color:var(--color-text-muted); font-weight:var(--weight-semibold); display:block;">Current Operating Term</span>
+          {% if current_term %}
+            <strong style="color:var(--color-text); font-size:var(--text-base); display:block;">{{ current_term.name }}</strong>
+            <span style="font-size:var(--text-xs); color:var(--color-text-muted); display:block;">{{ current_term.session.name }}</span>
+          {% else %}
+            <span class="badge badge--danger" style="margin-top:2px;">None Set</span>
+          {% endif %}
+        </div>
+      </div>
     </div>
   </div>
 
   {% if not current_term %}
-    <div class="card">
-      <p class="card__title">Set a current term</p>
-      <p>
-        New enrolments, fee structures and payments are all recorded against the
-        current term. Until one is set, those screens have nowhere to file what they
-        create.
+    <div class="card" style="border-left: 4px solid var(--color-danger, #ef4444); background: var(--color-danger-bg, #fef2f2); margin-bottom:var(--space-5);">
+      <p class="card__title" style="color: var(--color-danger-text, #991b1b); margin-bottom: var(--space-2);">⚠️ Set an Active Current Term</p>
+      <p style="color: var(--color-danger-text, #991b1b); font-size: var(--text-sm); margin:0;">
+        New enrolments, fee structures, and payments are all recorded against the
+        <strong>Current Term</strong>. Until one is created and set as current, those screens have nowhere to file what they create.
       </p>
     </div>
   {% endif %}
 
-  <div class="card">
-    <p class="card__title">Sessions and terms</p>
-    <div class="table-wrap">
-      <table class="table">
-        <thead>
-          <tr>
-            <th scope="col">Session</th>
-            <th scope="col">Dates</th>
-            <th scope="col">Terms</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for session in sessions %}
-            <tr>
-              <td>
-                <strong>{{ session.name }}</strong>
-                {% if session.is_current %}
-                  <span class="badge badge--success">Current</span>
-                {% else %}
-                  <form method="post" style="display:inline;">
-                    {% csrf_token %}
-                    <input type="hidden" name="action" value="set_current_session">
-                    <input type="hidden" name="session_id" value="{{ session.pk }}">
-                    <button type="submit" class="btn btn--link">Make current</button>
-                  </form>
-                {% endif %}
-              </td>
-              <td>{{ session.start_date|date:"j M Y" }} – {{ session.end_date|date:"j M Y" }}</td>
-              <td>
-                {% for term in session.terms.all %}
-                  <div>
-                    {{ term.name }}
-                    <span class="field__help">
-                      {{ term.start_date|date:"j M" }} – {{ term.end_date|date:"j M Y" }}
-                    </span>
-                    {% if term.is_current %}
-                      <span class="badge badge--success">Current</span>
-                    {% else %}
-                      <form method="post" style="display:inline;">
-                        {% csrf_token %}
-                        <input type="hidden" name="action" value="set_current_term">
-                        <input type="hidden" name="term_id" value="{{ term.pk }}">
-                        <button type="submit" class="btn btn--link">Make current</button>
-                      </form>
-                    {% endif %}
-                  </div>
-                {% empty %}
-                  <span class="field__help">No terms yet — add one below.</span>
-                {% endfor %}
-              </td>
-            </tr>
-          {% empty %}
-            <tr>
-              <td colspan="3" class="table__empty">No sessions yet.</td>
-            </tr>
-          {% endfor %}
-        </tbody>
-      </table>
+  <!-- Guided Banner when a new session was just added -->
+  {% if new_session %}
+    <div class="card" style="border: 2px solid var(--color-brand, #2563eb); background: var(--color-brand-light, #eff6ff); margin-bottom:var(--space-5);">
+      <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:var(--space-3);">
+        <div>
+          <div style="display:flex; align-items:center; gap:var(--space-2);">
+            <span class="badge badge--success">Session Created</span>
+            <strong style="font-size:var(--text-base); color:var(--color-brand-dark, #1e3a8a);">
+              “{{ new_session.name }}” is ready!
+            </strong>
+          </div>
+          <p style="margin:var(--space-2) 0 0 0; font-size:var(--text-sm); color:var(--color-brand-text, #1e40af);">
+            <strong>Next Step:</strong> Every academic session requires operating terms (e.g. First Term, Second Term). Use the form below to add the first term for {{ new_session.name }}.
+          </p>
+        </div>
+        <button type="button" class="btn btn--primary btn--sm" onclick="openAddTermForSession('{{ new_session.pk }}', '{{ new_session.name|escapejs }}')">
+          + Add Term to {{ new_session.name }}
+        </button>
+      </div>
     </div>
+  {% endif %}
+
+  <!-- Hierarchical Sessions and Terms Display -->
+  <div style="margin-bottom: var(--space-6);">
+    <h2 style="font-size:var(--text-lg); font-weight:var(--weight-bold); margin-bottom:var(--space-3); color:var(--color-text);">
+      Academic Sessions & Operating Terms
+    </h2>
+
+    {% for session in sessions %}
+      <div class="card" style="margin-bottom:var(--space-4); {% if session.is_current %}border-color:var(--color-brand, #2563eb); box-shadow:0 0 0 1px var(--color-brand, #2563eb);{% endif %}" id="session-card-{{ session.pk }}">
+        
+        <!-- Session Card Header -->
+        <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:var(--space-3); padding-bottom:var(--space-3); border-bottom:1px solid var(--color-border-subtle);">
+          <div>
+            <div style="display:flex; align-items:center; gap:var(--space-2); flex-wrap:wrap;">
+              <span style="font-size:var(--text-md); font-weight:var(--weight-bold); color:var(--color-text);">
+                {{ session.name }}
+              </span>
+              {% if session.is_current %}
+                <span class="badge badge--success">Current Academic Session</span>
+              {% else %}
+                <form method="post" style="display:inline;">
+                  {% csrf_token %}
+                  <input type="hidden" name="action" value="set_current_session">
+                  <input type="hidden" name="session_id" value="{{ session.pk }}">
+                  <button type="submit" class="btn btn--secondary btn--sm" style="padding:2px 8px; font-size:var(--text-xs);">
+                    Make Current Session
+                  </button>
+                </form>
+              {% endif %}
+            </div>
+            <p style="margin:var(--space-1) 0 0 0; font-size:var(--text-xs); color:var(--color-text-muted);">
+              Session Dates: <strong>{{ session.start_date|date:"j M Y" }}</strong> – <strong>{{ session.end_date|date:"j M Y" }}</strong>
+              &middot; {{ session.terms.count }} term{{ session.terms.count|pluralize }} configured
+            </p>
+          </div>
+
+          <div>
+            <button type="button" class="btn btn--secondary btn--sm" onclick="openAddTermForSession('{{ session.pk }}', '{{ session.name|escapejs }}')" style="font-weight:var(--weight-semibold);">
+              + Add Term to this Session
+            </button>
+          </div>
+        </div>
+
+        <!-- Nested Terms for this Session -->
+        <div style="margin-top:var(--space-3);">
+          {% if session.terms.all %}
+            <div class="table-wrap">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th scope="col" style="width:40%;">Term Name</th>
+                    <th scope="col" style="width:35%;">Operating Period</th>
+                    <th scope="col" style="width:25%; text-align:right;">Status / Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for term in session.terms.all %}
+                    <tr>
+                      <td>
+                        <strong>{{ term.name }}</strong>
+                      </td>
+                      <td>
+                        {{ term.start_date|date:"j M Y" }} – {{ term.end_date|date:"j M Y" }}
+                      </td>
+                      <td style="text-align:right;">
+                        {% if term.is_current %}
+                          <span class="badge badge--success">Current Term</span>
+                        {% else %}
+                          <form method="post" style="display:inline;">
+                            {% csrf_token %}
+                            <input type="hidden" name="action" value="set_current_term">
+                            <input type="hidden" name="term_id" value="{{ term.pk }}">
+                            <button type="submit" class="btn btn--link" style="font-size:var(--text-xs);">
+                              Make Current
+                            </button>
+                          </form>
+                        {% endif %}
+                      </td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          {% else %}
+            <!-- Clear instruction to add terms right here -->
+            <div style="background:var(--color-warning-bg, #fffbeb); border:1px solid var(--color-warning-border, #fde68a); border-radius:var(--radius-md); padding:var(--space-3) var(--space-4); display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:var(--space-3);">
+              <div>
+                <strong style="color:var(--color-warning-text, #92400e); font-size:var(--text-sm); display:block;">
+                  ⚠️ No terms added to {{ session.name }} yet.
+                </strong>
+                <span style="font-size:var(--text-xs); color:var(--color-text-muted);">
+                  Classes, student enrollments, and billing cannot operate in this session without at least one term.
+                </span>
+              </div>
+              <button type="button" class="btn btn--primary btn--sm" onclick="openAddTermForSession('{{ session.pk }}', '{{ session.name|escapejs }}')">
+                + Add First Term Now
+              </button>
+            </div>
+          {% endif %}
+        </div>
+      </div>
+    {% empty %}
+      <div class="card" style="text-align:center; padding:var(--space-7) var(--space-4);">
+        <h3 style="font-size:var(--text-lg); margin-bottom:var(--space-2);">No Academic Sessions Configured</h3>
+        <p style="color:var(--color-text-muted); font-size:var(--text-sm); max-width:480px; margin:0 auto var(--space-4) auto;">
+          Begin by creating your school's current academic session (e.g. "2024/2025"). Once the session is saved, you will immediately add its terms.
+        </p>
+        <button type="button" class="btn btn--primary" onclick="openSessionForm()">+ Add Your First Academic Session</button>
+      </div>
+    {% endfor %}
   </div>
 
-  <div class="card">
-    <details {% if open_form == 'session' %}open{% endif %}>
-      <summary class="card__title">Add a session</summary>
-      <p class="field__help">
-        A new session is not made current automatically — a school setting up next
-        year in March is still teaching this year.
-      </p>
-      <form method="post" class="form" novalidate>
-        {% csrf_token %}
-        <input type="hidden" name="action" value="add_session">
-        {% with form=session_form %}
-          {% include "includes/form_errors.html" %}
-          {% for field in form %}
-            {% include "includes/field.html" %}
-          {% endfor %}
-        {% endwith %}
-        <div class="form-actions">
-          <button type="submit" class="btn btn--primary">Add session</button>
+  <!-- Forms Section: Clear Separation of Add Session and Add Term -->
+  <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap:var(--space-5); margin-top:var(--space-6);">
+    
+    <!-- Step 1 Form: Add Session -->
+    <div class="card" id="session-form-card" style="margin-bottom:0;">
+      <details id="session-details" {% if open_form == 'session' %}open{% endif %}>
+        <summary class="card__title" style="cursor:pointer; user-select:none; margin-bottom:0;">
+          <span style="display:inline-flex; align-items:center; gap:var(--space-2);">
+            <span>📅</span> Add an Academic Session (School Year)
+          </span>
+        </summary>
+        <div style="margin-top:var(--space-3);">
+          <p class="field__help" style="margin-bottom:var(--space-4);">
+            An academic session represents the overarching school year (e.g. <em>2024/2025</em>). Adding a session does not make it current automatically. Once created, you will add its operating terms.
+          </p>
+          <form method="post" class="form" novalidate>
+            {% csrf_token %}
+            <input type="hidden" name="action" value="add_session">
+            {% with form=session_form %}
+              {% include "includes/form_errors.html" %}
+              {% for field in form %}
+                {% include "includes/field.html" %}
+              {% endfor %}
+            {% endwith %}
+            <div class="form-actions" style="margin-top:var(--space-4);">
+              <button type="submit" class="btn btn--primary">Create Academic Session &rarr;</button>
+            </div>
+          </form>
         </div>
-      </form>
-    </details>
+      </details>
+    </div>
+
+    <!-- Step 2 Form: Add Term -->
+    <div class="card" id="term-form-card" style="margin-bottom:0;">
+      <details id="term-details" {% if open_form == 'term' %}open{% endif %}>
+        <summary class="card__title" style="cursor:pointer; user-select:none; margin-bottom:0;">
+          <span style="display:inline-flex; align-items:center; gap:var(--space-2);">
+            <span>📝</span> Add an Academic Term to a Session
+          </span>
+        </summary>
+        <div style="margin-top:var(--space-3);">
+          <p class="field__help" style="margin-bottom:var(--space-4);">
+            Create a term (e.g. <em>First Term</em>, <em>Second Term</em>, <em>Third Term</em>) inside an existing session. The term's start and end dates must fall inside the session's date boundaries.
+          </p>
+          <form method="post" class="form" novalidate>
+            {% csrf_token %}
+            <input type="hidden" name="action" value="add_term">
+            {% with form=term_form %}
+              {% include "includes/form_errors.html" %}
+              {% for field in form %}
+                {% include "includes/field.html" %}
+              {% endfor %}
+            {% endwith %}
+            <div class="form-actions" style="margin-top:var(--space-4);">
+              <button type="submit" class="btn btn--primary">Add Term</button>
+            </div>
+          </form>
+        </div>
+      </details>
+    </div>
+
   </div>
 
-  <div class="card">
-    <details {% if open_form == 'term' %}open{% endif %}>
-      <summary class="card__title">Add a term</summary>
-      <form method="post" class="form" novalidate>
-        {% csrf_token %}
-        <input type="hidden" name="action" value="add_term">
-        {% with form=term_form %}
-          {% include "includes/form_errors.html" %}
-          {% for field in form %}
-            {% include "includes/field.html" %}
-          {% endfor %}
-        {% endwith %}
-        <div class="form-actions">
-          <button type="submit" class="btn btn--primary">Add term</button>
-        </div>
-      </form>
-    </details>
-  </div>
+  <script>
+    function openSessionForm() {
+      var details = document.getElementById("session-details");
+      if (details) details.open = true;
+      var card = document.getElementById("session-form-card");
+      if (card) card.scrollIntoView({ behavior: "smooth", block: "center" });
+      var nameInput = document.querySelector("#session-form-card input[name='name']");
+      if (nameInput) nameInput.focus();
+    }
+
+    function openTermForm() {
+      var details = document.getElementById("term-details");
+      if (details) details.open = true;
+      var card = document.getElementById("term-form-card");
+      if (card) card.scrollIntoView({ behavior: "smooth", block: "center" });
+      var nameInput = document.querySelector("#term-form-card input[name='name']");
+      if (nameInput) nameInput.focus();
+    }
+
+    function openAddTermForSession(sessionId, sessionName) {
+      var details = document.getElementById("term-details");
+      if (details) details.open = true;
+      var sessionSelect = document.querySelector("#term-form-card select[name='session']");
+      if (sessionSelect && sessionId) {
+        sessionSelect.value = sessionId;
+      }
+      var card = document.getElementById("term-form-card");
+      if (card) card.scrollIntoView({ behavior: "smooth", block: "center" });
+      var nameInput = document.querySelector("#term-form-card input[name='name']");
+      if (nameInput) nameInput.focus();
+    }
+
+    // If redirected after session creation or with preselected session, ensure term form is open
+    document.addEventListener("DOMContentLoaded", function() {
+      var urlParams = new URLSearchParams(window.location.search);
+      var newSessionId = urlParams.get("new_session_id") || urlParams.get("session_id");
+      if (newSessionId) {
+        var details = document.getElementById("term-details");
+        if (details) details.open = true;
+        var sessionSelect = document.querySelector("#term-form-card select[name='session']");
+        if (sessionSelect && !sessionSelect.value) {
+          sessionSelect.value = newSessionId;
+        }
+      }
+    });
+  </script>
 {% endblock %}

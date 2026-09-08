@@ -727,16 +727,18 @@ class StudentCreditApplyView(RoleRequiredMixin, View):
         form = ApplyCreditForm(request.POST, student=student, institution_id=request.institution_id)
         if form.is_valid():
             try:
-                apply_student_credit(
+                credit_tx = apply_student_credit(
                     student=student,
                     assignment=form.cleaned_data["assignment"],
                     amount=form.cleaned_data["amount"],
                     actor=request.user,
                     ip_address=request.META.get("REMOTE_ADDR"),
                 )
+                student.refresh_from_db(fields=["credit_balance"])
+                applied_amount = abs(credit_tx.amount)
                 messages.success(
                     request,
-                    f"₦{form.cleaned_data['amount']} credit applied successfully to {form.cleaned_data['assignment'].fee_structure.name}.",
+                    f"₦{applied_amount} credit applied successfully to {form.cleaned_data['assignment'].fee_structure.name}. Remaining credit: ₦{student.credit_balance}.",
                 )
             except ValidationError as e:
                 messages.error(request, str(e.message))
@@ -946,7 +948,7 @@ class PaymentCreateView(RoleRequiredMixin, BillingFormKwargsMixin, FormView):
         student_id = self.request.GET.get("student_id")
         if assignment_id:
             try:
-                assignment = StudentFeeAssignment.objects.get(
+                assignment = StudentFeeAssignment.objects.select_related("fee_structure").get(
                     pk=assignment_id,
                     institution_id=self.request.institution_id,
                 )
@@ -959,6 +961,7 @@ class PaymentCreateView(RoleRequiredMixin, BillingFormKwargsMixin, FormView):
                     student_id=student_id,
                     institution_id=self.request.institution_id,
                 )
+                .select_related("fee_structure")
                 .order_by("-created_at")
                 .first()
             )
@@ -970,12 +973,53 @@ class PaymentCreateView(RoleRequiredMixin, BillingFormKwargsMixin, FormView):
         context = super().get_context_data(**kwargs)
         import json
 
-        # 1. Fetch active classes
+        # 1. Fetch sessions, terms and active classes
+        sessions = Session.objects.filter(
+            institution_id=self.request.institution_id
+        ).order_by("-start_date")
+        context["sessions"] = sessions
+
+        terms = Term.objects.filter(
+            institution_id=self.request.institution_id
+        ).select_related("session").order_by("session__start_date", "start_date")
+        context["terms"] = terms
+
+        current_session = sessions.filter(is_current=True).first()
+        current_term = terms.filter(is_current=True).first()
+        context["current_session"] = current_session
+        context["current_term"] = current_term
+
+        # Map each session to its list of terms for dynamic client-side filtering
+        sessions_terms_map = {}
+        for s in sessions:
+            sessions_terms_map[str(s.pk)] = [
+                {"id": str(t.pk), "name": t.name, "is_current": t.is_current}
+                for t in terms if t.session_id == s.pk
+            ]
+        context["sessions_terms_json"] = json.dumps(sessions_terms_map)
+
         classes = Class.objects.filter(
             institution_id=self.request.institution_id,
             status="active",
         ).order_by("order", "name")
         context["classes"] = classes
+
+        initial_assignment = self.get_initial().get("assignment")
+        selected_session_id = self.request.GET.get("session_id")
+        selected_term_id = self.request.GET.get("term_id")
+        if initial_assignment and hasattr(initial_assignment, "fee_structure"):
+            if not selected_session_id and initial_assignment.fee_structure.session_id:
+                selected_session_id = str(initial_assignment.fee_structure.session_id)
+            if not selected_term_id and initial_assignment.fee_structure.term_id:
+                selected_term_id = str(initial_assignment.fee_structure.term_id)
+        elif not selected_session_id and current_session:
+            selected_session_id = str(current_session.pk)
+            if not selected_term_id and current_term and current_term.session_id == current_session.pk:
+                selected_term_id = str(current_term.pk)
+
+        context["selected_session_id"] = selected_session_id or ""
+        context["selected_term_id"] = selected_term_id or ""
+        context["initial_assignment_id"] = str(initial_assignment.pk) if initial_assignment else ""
 
         # 2. Bulk fetch allocations grouped by (assignment_id, fee_item_id) in 1 query
         allocations_qs = (
@@ -1032,7 +1076,13 @@ class PaymentCreateView(RoleRequiredMixin, BillingFormKwargsMixin, FormView):
             StudentFeeAssignment.objects.filter(
                 institution_id=self.request.institution_id
             )
-            .select_related("student", "fee_structure", "fee_structure__klass")
+            .select_related(
+                "student",
+                "fee_structure",
+                "fee_structure__klass",
+                "fee_structure__session",
+                "fee_structure__term",
+            )
             .prefetch_related("fee_structure__items")
         )
 
@@ -1083,10 +1133,15 @@ class PaymentCreateView(RoleRequiredMixin, BillingFormKwargsMixin, FormView):
                     "admission_number": a.student.admission_number,
                     "class_id": str(a.fee_structure.klass_id),
                     "class_name": a.fee_structure.klass.name,
+                    "session_id": str(a.fee_structure.session_id) if a.fee_structure.session_id else "",
+                    "session_name": a.fee_structure.session.name if a.fee_structure.session else "",
+                    "term_id": str(a.fee_structure.term_id) if a.fee_structure.term_id else "",
+                    "term_name": a.fee_structure.term.name if a.fee_structure.term else "",
                     "fee_structure_id": str(a.fee_structure_id),
                     "fee_structure_name": a.fee_structure.name,
                     "total_billed": str(a.amount_due),
                     "total_outstanding": str(outstanding),
+                    "credit_balance": str(a.student.credit_balance),
                     "items": items_breakdown,
                 }
         context["assignments_json"] = json.dumps(data)
@@ -1104,9 +1159,13 @@ class PaymentCreateView(RoleRequiredMixin, BillingFormKwargsMixin, FormView):
                 item_allocations=form.cleaned_data.get("cleaned_allocations"),
                 ip_address=self.request.META.get("REMOTE_ADDR"),
             )
-            msg = f"Payment of {payment.amount} recorded — receipt {receipt.receipt_number}."
+            msg = f"Receipt {receipt.receipt_number} generated."
+            if payment.amount > Decimal("0.00"):
+                msg = f"Payment of {payment.amount} recorded — receipt {receipt.receipt_number}."
             if credit_applied > 0:
-                msg += f" {credit_applied} credit was applied."
+                student = form.cleaned_data["assignment"].student
+                student.refresh_from_db(fields=["credit_balance"])
+                msg += f" ₦{credit_applied} credit applied (remaining credit: ₦{student.credit_balance})."
             if credit_created > 0:
                 msg += f" {credit_created} added to student's credit balance."
             messages.success(self.request, msg)

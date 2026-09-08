@@ -123,9 +123,10 @@ class StudentFeeAssignment(TenantScopedModel):
         return paid + applied_credits
 
     @property
-    def outstanding_balance(self):
+    def raw_balance(self):
         """docs/02_Database.md: amount_due − (payments − positive credit
         sourced from those payments) + applied_credits (which are negative).
+        Un-clamped balance: negative value indicates an overpayment.
         Read-only helper; the ledger remains the audit trail.
 
         Reversed payments are excluded — a reversal means the money is not
@@ -141,8 +142,15 @@ class StudentFeeAssignment(TenantScopedModel):
         applied_credits = self.applied_credits.order_by().aggregate(
             total=models.Sum("amount")
         )["total"] or Decimal("0.00")
-        balance = self.amount_due - (paid - credited_back - applied_credits)
-        return max(Decimal("0.00"), balance)
+        return self.amount_due - (paid - credited_back - applied_credits)
+
+    @property
+    def outstanding_balance(self):
+        """docs/02_Database.md: amount_due − (payments − positive credit
+        sourced from those payments) + applied_credits (which are negative).
+        Clamped at 0.00. Read-only helper; the ledger remains the audit trail.
+        """
+        return max(Decimal("0.00"), self.raw_balance)
 
     @property
     def is_paid_in_full(self):

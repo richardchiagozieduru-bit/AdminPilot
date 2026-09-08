@@ -17,7 +17,7 @@ from django.contrib import messages
 from django.db import DatabaseError, transaction
 from django.db.models import Count, Q
 from django.shortcuts import get_object_or_404, redirect, render
-from django.urls import reverse_lazy
+from django.urls import reverse, reverse_lazy
 from django.views.generic import (
     CreateView,
     DetailView,
@@ -376,20 +376,45 @@ class AcademicStructureView(RoleRequiredMixin, TemplateView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        # setdefault, so a POST that re-renders with its own bound form keeps it
-        # instead of having a fresh blank one written over the errors.
+        open_form = self.request.GET.get("open_form")
+        new_session_id = self.request.GET.get("new_session_id")
+        session_id_param = self.request.GET.get("session_id") or new_session_id
+        if open_form and "open_form" not in context:
+            context["open_form"] = open_form
+
+        if new_session_id:
+            new_session = Session.objects.filter(
+                institution_id=self.request.institution_id, pk=new_session_id
+            ).first()
+            if new_session:
+                context["new_session"] = new_session
+
         context.setdefault("session_form", self.build_session_form())
-        context.setdefault("term_form", self.build_term_form())
-        context["sessions"] = Session.objects.prefetch_related("terms")
-        context["current_session"] = Session.objects.filter(is_current=True).first()
-        context["current_term"] = Term.objects.filter(is_current=True).first()
+        context.setdefault("term_form", self.build_term_form(session_id=session_id_param))
+        context["sessions"] = Session.objects.filter(
+            institution_id=self.request.institution_id
+        ).prefetch_related("terms")
+        context["current_session"] = Session.objects.filter(
+            institution_id=self.request.institution_id, is_current=True
+        ).first()
+        context["current_term"] = Term.objects.filter(
+            institution_id=self.request.institution_id, is_current=True
+        ).first()
+        context["selected_session_id"] = session_id_param or ""
         return context
 
     def build_session_form(self, data=None):
         return SessionForm(data=data, institution_id=self.request.institution_id)
 
-    def build_term_form(self, data=None):
-        return TermForm(data=data, institution_id=self.request.institution_id)
+    def build_term_form(self, data=None, session_id=None):
+        initial = {}
+        if session_id:
+            initial["session"] = session_id
+        elif self.request.GET.get("session_id"):
+            initial["session"] = self.request.GET.get("session_id")
+        elif self.request.GET.get("new_session_id"):
+            initial["session"] = self.request.GET.get("new_session_id")
+        return TermForm(data=data, initial=initial, institution_id=self.request.institution_id)
 
     def post(self, request, *args, **kwargs):
         handler = {
@@ -430,10 +455,9 @@ class AcademicStructureView(RoleRequiredMixin, TemplateView):
         # under them as a side effect of adding a row would be wrong.
         messages.success(
             request,
-            f"Session “{session.name}” added. Add its terms below, then set the "
-            f"current term when it starts.",
+            f"Session “{session.name}” created! Now add its terms (e.g. First Term, Second Term) below.",
         )
-        return redirect("academic:structure")
+        return redirect(f"{reverse('academic:structure')}?new_session_id={session.pk}&open_form=term#term-form-card")
 
     def add_term(self, request):
         form = self.build_term_form(request.POST)

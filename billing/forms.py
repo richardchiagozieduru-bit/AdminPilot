@@ -176,10 +176,13 @@ class ApplyCreditForm(forms.Form):
         assignment = cleaned_data.get("assignment")
         amount = cleaned_data.get("amount")
         if assignment and amount:
-            if amount > assignment.outstanding_balance:
+            if assignment.outstanding_balance <= Decimal("0.00"):
                 raise forms.ValidationError(
-                    f"Amount cannot exceed the assignment's outstanding balance (₦{assignment.outstanding_balance})."
+                    "This fee assignment has no outstanding balance to pay."
                 )
+            # If requested amount exceeds outstanding balance, safely clamp to outstanding balance
+            if amount > assignment.outstanding_balance:
+                cleaned_data["amount"] = assignment.outstanding_balance
         return cleaned_data
 
 
@@ -198,7 +201,7 @@ class PaymentForm(forms.Form):
     amount = forms.DecimalField(
         max_digits=12,
         decimal_places=2,
-        min_value=Decimal("0.01"),
+        min_value=Decimal("0.00"),
         label="Total Amount to Record",
     )
     item_allocations_json = forms.CharField(
@@ -250,6 +253,16 @@ class PaymentForm(forms.Form):
 
     def clean(self):
         cleaned_data = super().clean()
+        amount = cleaned_data.get("amount")
+        apply_credit = cleaned_data.get("apply_credit", False)
+        assignment = cleaned_data.get("assignment")
+
+        if amount is not None and amount == Decimal("0.00"):
+            if not apply_credit:
+                self.add_error("amount", "Payment amount must be greater than zero unless paying with student credit.")
+            elif assignment and assignment.student.credit_balance <= Decimal("0.00"):
+                self.add_error("amount", "Student has no available credit. Payment amount must be greater than zero.")
+
         allocations_raw = cleaned_data.get("item_allocations_json")
         cleaned_allocations = []
         if allocations_raw:

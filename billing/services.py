@@ -482,15 +482,17 @@ def apply_student_credit(
     if amount <= Decimal("0.00"):
         raise ValidationError("Credit amount to apply must be greater than zero.")
 
+    outstanding = assignment.outstanding_balance
+    if outstanding <= Decimal("0.00"):
+        raise ValidationError("This fee assignment has no outstanding balance to pay.")
+
+    # If amount requested exceeds outstanding, clamp to outstanding balance
+    if amount > outstanding:
+        amount = outstanding
+
     if student.credit_balance < amount:
         raise ValidationError(
             f"Cannot apply ₦{amount}. Student only has ₦{student.credit_balance} available credit."
-        )
-
-    outstanding = assignment.outstanding_balance
-    if amount > outstanding:
-        raise ValidationError(
-            f"Cannot apply ₦{amount}. Outstanding balance on this fee assignment is ₦{outstanding}."
         )
 
     credit_tx = CreditTransaction.unscoped.create(
@@ -693,11 +695,18 @@ def record_payment(
             student.save(update_fields=["credit_balance"])
             credit_applied = credit_to_apply
 
-    # Step 2: Create the payment
+    # Step 2: Determine actual cash/external payment amount.
+    # If the caller submitted a gross settlement amount (e.g. 430,000) while also applying credit,
+    # clamp actual_payment_amount to max(0, amount - credit_applied) so that credit is not
+    # immediately refunded back as an accidental overpayment in Step 5.
+    actual_payment_amount = amount
+    if credit_applied > 0 and (amount + credit_applied) > outstanding:
+        actual_payment_amount = max(Decimal("0.00"), amount - credit_applied)
+
     payment = Payment.unscoped.create(
         institution_id=institution.pk,
         assignment=assignment,
-        amount=amount,
+        amount=actual_payment_amount,
         payment_date=payment_date,
         method=method,
         recorded_by=actor,
@@ -723,7 +732,7 @@ def record_payment(
     else:
         # Fallback automatic priority waterfall allocation
         breakdown = assignment.get_item_breakdown()
-        remaining_to_allocate = amount
+        remaining_to_allocate = actual_payment_amount if actual_payment_amount > 0 else credit_applied
         for item_data in breakdown:
             if remaining_to_allocate <= 0:
                 break
@@ -766,11 +775,11 @@ def record_payment(
     )
 
     # Step 5: Check for overpayment and create credit
-    # Recalculate outstanding after the payment is recorded
-    new_outstanding = assignment.outstanding_balance
-    if new_outstanding < 0:
+    # Recalculate balance after the payment is recorded (using un-clamped raw_balance)
+    new_balance = assignment.raw_balance
+    if new_balance < 0:
         # The overpayment amount is the absolute value of the negative balance
-        credit_created = abs(new_outstanding)
+        credit_created = abs(new_balance)
         CreditTransaction.unscoped.create(
             institution_id=institution.pk,
             amount=credit_created,
@@ -781,7 +790,7 @@ def record_payment(
 
     # Step 6: Audit log
     summary_parts = [
-        f"Recorded payment of {amount} for {student.full_name}",
+        f"Recorded payment of {actual_payment_amount} for {student.full_name}",
         f"(receipt {receipt_number})",
     ]
     if credit_applied > 0:
@@ -797,7 +806,7 @@ def record_payment(
         target_type="Payment",
         target_id=str(payment.pk),
         detail={
-            "amount": str(amount),
+            "amount": str(actual_payment_amount),
             "method": method,
             "receipt_number": receipt_number,
             "student_id": student.pk,

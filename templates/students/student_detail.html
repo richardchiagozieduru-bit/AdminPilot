@@ -148,26 +148,29 @@ they show is created in Phases 5 and 6. Enrollment History is real now.
     {% if student.credit_balance > 0 and can_manage %}
       <div id="creditApplyModal" class="card" style="display:none; border:2px solid var(--color-primary, #2563eb); background:var(--color-bg-subtle, #f8fafc); margin-bottom:var(--space-4);">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:var(--space-3);">
-          <h3 style="margin:0; font-size:var(--text-base); color:var(--color-text);">Apply Available Credit (₦{{ student.credit_balance }})</h3>
+          <h3 style="margin:0; font-size:var(--text-base); color:var(--color-text);">Apply Available Credit (Available: ₦{{ student.credit_balance }})</h3>
           <button type="button" class="btn btn--link" onclick="closeCreditModal()" style="font-size:18px; color:var(--color-text-muted);">✕</button>
         </div>
         <form method="post" action="{% url 'billing:student_credit_apply' student.pk %}">
           {% csrf_token %}
           <input type="hidden" name="next" value="{{ request.path }}">
-          <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:var(--space-3); align-items:end;">
+          <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:var(--space-3); align-items:end;">
             <div class="field" style="margin:0;">
               <label class="field__label" for="credit_assignment">Target Fee Structure / Term</label>
               <select name="assignment" id="credit_assignment" class="field__input" required>
                 {% for fa in fee_assignments %}
                   {% if fa.outstanding_balance > 0 %}
-                    <option value="{{ fa.pk }}">{{ fa.fee_structure.name }} (Outstanding: ₦{{ fa.outstanding_balance }})</option>
+                    <option value="{{ fa.pk }}" data-outstanding="{{ fa.outstanding_balance }}" data-name="{{ fa.fee_structure.name }}">
+                      {{ fa.fee_structure.name }} (Outstanding: ₦{{ fa.outstanding_balance }})
+                    </option>
                   {% endif %}
                 {% endfor %}
               </select>
             </div>
             <div class="field" style="margin:0;">
               <label class="field__label" for="credit_amount">Amount to Apply (₦)</label>
-              <input type="number" step="0.01" min="0.01" max="{{ student.credit_balance }}" name="amount" id="credit_amount" class="field__input" value="{{ student.credit_balance }}" required style="font-family:var(--font-mono);">
+              <input type="number" step="0.01" min="0.01" max="{{ student.credit_balance }}" name="amount" id="credit_amount" class="field__input" required style="font-family:var(--font-mono);">
+              <p class="field__help" id="credit_modal_help" style="margin-top:4px; font-size:var(--text-xs); color:var(--color-text-muted);"></p>
             </div>
             <div>
               <button type="submit" class="btn btn--primary" style="width:100%;">Confirm & Apply Credit</button>
@@ -176,14 +179,50 @@ they show is created in Phases 5 and 6. Enrollment History is real now.
         </form>
       </div>
       <script>
+        var studentAvailableCredit = parseFloat("{{ student.credit_balance }}") || 0;
+
+        function updateCreditModalAmount() {
+          var sel = document.getElementById('credit_assignment');
+          var amtInput = document.getElementById('credit_amount');
+          var help = document.getElementById('credit_modal_help');
+          if (!sel || !amtInput) return;
+
+          var opt = sel.options[sel.selectedIndex];
+          if (!opt) {
+            amtInput.value = "";
+            return;
+          }
+
+          var outstanding = parseFloat(opt.getAttribute('data-outstanding')) || 0;
+          var applicable = Math.min(studentAvailableCredit, outstanding);
+          amtInput.value = applicable.toFixed(2);
+          amtInput.max = applicable.toFixed(2);
+          
+          if (help) {
+            help.textContent = "Max applicable: ₦" + applicable.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2}) + 
+              " (Outstanding: ₦" + outstanding.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2}) + 
+              ", Remaining credit: ₦" + (studentAvailableCredit - applicable).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2}) + ")";
+          }
+        }
+
         function openCreditModal() {
           var el = document.getElementById('creditApplyModal');
-          if (el) el.style.display = 'block';
+          if (el) {
+            el.style.display = 'block';
+            updateCreditModalAmount();
+          }
         }
         function closeCreditModal() {
           var el = document.getElementById('creditApplyModal');
           if (el) el.style.display = 'none';
         }
+
+        document.addEventListener('DOMContentLoaded', function() {
+          var sel = document.getElementById('credit_assignment');
+          if (sel) {
+            sel.addEventListener('change', updateCreditModalAmount);
+          }
+        });
       </script>
     {% endif %}
 
