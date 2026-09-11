@@ -67,6 +67,9 @@ class DashboardView(RoleRequiredMixin, TemplateView):
 
         context["financials_available"] = True
         context["can_manage"] = self.can_manage()
+        from core.permissions import has_module_access
+        context["can_record_payment"] = has_module_access(user, "payments", "manage")
+        context["can_add_student"] = has_module_access(user, "students", "manage")
 
         # Fees Due & Collected
         assignments_qs = StudentFeeAssignment.unscoped.filter(

@@ -719,16 +719,17 @@ def record_payment(
             fee_item_id = alloc.get("fee_item_id")
             alloc_amt = Decimal(str(alloc.get("amount", "0.00")))
             if alloc_amt > 0 and fee_item_id:
-                PaymentItemAllocation.unscoped.create(
-                    institution_id=institution.pk,
-                    payment=payment,
-                    fee_item_id=fee_item_id,
-                    amount=alloc_amt,
-                )
-                recorded_allocations.append({
-                    "fee_item_id": fee_item_id,
-                    "amount": str(alloc_amt),
-                })
+                if FeeStructureItem.objects.filter(pk=fee_item_id).exists():
+                    PaymentItemAllocation.unscoped.create(
+                        institution_id=institution.pk,
+                        payment=payment,
+                        fee_item_id=fee_item_id,
+                        amount=alloc_amt,
+                    )
+                    recorded_allocations.append({
+                        "fee_item_id": fee_item_id,
+                        "amount": str(alloc_amt),
+                    })
     else:
         # Fallback automatic priority waterfall allocation
         breakdown = assignment.get_item_breakdown()
@@ -739,16 +740,18 @@ def record_payment(
             needed = item_data["remaining"]
             if needed > 0:
                 alloc_amt = min(needed, remaining_to_allocate)
-                PaymentItemAllocation.unscoped.create(
-                    institution_id=institution.pk,
-                    payment=payment,
-                    fee_item_id=item_data["fee_item_id"],
-                    amount=alloc_amt,
-                )
-                recorded_allocations.append({
-                    "fee_item_id": item_data["fee_item_id"],
-                    "amount": str(alloc_amt),
-                })
+                fee_item_id = item_data["fee_item_id"]
+                if FeeStructureItem.objects.filter(pk=fee_item_id).exists():
+                    PaymentItemAllocation.unscoped.create(
+                        institution_id=institution.pk,
+                        payment=payment,
+                        fee_item_id=fee_item_id,
+                        amount=alloc_amt,
+                    )
+                    recorded_allocations.append({
+                        "fee_item_id": fee_item_id,
+                        "amount": str(alloc_amt),
+                    })
                 remaining_to_allocate -= alloc_amt
 
     # Step 3: Lock the fee structure (CR-002, application-layer only)

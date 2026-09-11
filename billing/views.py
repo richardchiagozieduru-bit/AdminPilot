@@ -622,6 +622,8 @@ class StudentFeePackageCustomizeView(RoleRequiredMixin, TemplateView):
             _populate_student_fee_items(self.assignment)
 
         context["items"] = self.assignment.items.all().order_by("id")
+        next_url = self.request.POST.get("next") or self.request.GET.get("next") or ""
+        context["next_url"] = next_url
         return context
 
     def post(self, request, *args, **kwargs):
@@ -701,6 +703,9 @@ class StudentFeePackageCustomizeView(RoleRequiredMixin, TemplateView):
                 request,
                 f"Fee package customized for {self.student.full_name}. New package total: ₦{self.assignment.amount_due}.",
             )
+            next_url = request.POST.get("next") or request.GET.get("next")
+            if next_url and next_url.startswith("/"):
+                return redirect(next_url)
             return redirect("students:payments", pk=self.student.pk)
         except ValidationError as e:
             messages.error(request, str(e.message))
@@ -1083,7 +1088,7 @@ class PaymentCreateView(RoleRequiredMixin, BillingFormKwargsMixin, FormView):
                 "fee_structure__session",
                 "fee_structure__term",
             )
-            .prefetch_related("fee_structure__items")
+            .prefetch_related("fee_structure__items", "items")
         )
 
         data = {}
@@ -1100,9 +1105,24 @@ class PaymentCreateView(RoleRequiredMixin, BillingFormKwargsMixin, FormView):
                 remaining_unallocated = unallocated_paid
 
                 items_breakdown = []
-                for item in a.fee_structure.items.all():
-                    direct_paid = paid_item_map.get(item.pk, Decimal("0.00"))
-                    billed = item.amount
+                # If student-specific customized items exist, use them; otherwise use fee structure items
+                custom_items = list(a.items.all())
+                if custom_items:
+                    item_list = [
+                        (s_item.fee_structure_item_id or s_item.pk, s_item.name, s_item.amount, s_item.is_included)
+                        for s_item in custom_items
+                    ]
+                else:
+                    item_list = [
+                        (item.pk, item.name, item.amount, True)
+                        for item in a.fee_structure.items.all()
+                    ]
+
+                for item_key, item_name, billed, is_included in item_list:
+                    if not is_included:
+                        continue
+
+                    direct_paid = paid_item_map.get(item_key, Decimal("0.00"))
                     fallback_applied = Decimal("0.00")
                     if remaining_unallocated > 0:
                         needed = max(Decimal("0.00"), billed - direct_paid)
@@ -1119,8 +1139,8 @@ class PaymentCreateView(RoleRequiredMixin, BillingFormKwargsMixin, FormView):
                         status = "unpaid"
 
                     items_breakdown.append({
-                        "fee_item_id": item.pk,
-                        "name": item.name,
+                        "fee_item_id": item_key,
+                        "name": item_name,
                         "billed": str(billed),
                         "paid": str(total_item_paid),
                         "remaining": str(remaining),

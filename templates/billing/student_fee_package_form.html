@@ -22,6 +22,7 @@ Allows setting mandatory/optional items, discounts, scholarships, exemptions, an
 
   <form method="post" id="package-form" class="form form--full" style="max-width:100%; width:100%;">
     {% csrf_token %}
+    <input type="hidden" name="next" value="{{ next_url }}">
 
     <div class="card" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:var(--space-4); background:var(--color-bg-subtle, #f8fafc); border:1px solid var(--color-border); margin-bottom:var(--space-4);">
       <div>
@@ -164,7 +165,11 @@ Allows setting mandatory/optional items, discounts, scholarships, exemptions, an
 
       <div class="form-actions" style="margin-top:var(--space-4);">
         <button type="submit" class="btn btn--primary">Save & Apply Customized Package</button>
-        <a class="btn btn--secondary" href="{% url 'students:payments' student.pk %}">Cancel</a>
+        {% if next_url %}
+          <a class="btn btn--secondary" href="{{ next_url }}">Cancel</a>
+        {% else %}
+          <a class="btn btn--secondary" href="{% url 'students:payments' student.pk %}">Cancel</a>
+        {% endif %}
       </div>
     </div>
   </form>
