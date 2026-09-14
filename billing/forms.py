@@ -18,6 +18,8 @@ from academic.models import Class, ClassStatus, Session, Term
 from .models import (
     FeeStructure,
     FeeStructureItem,
+    MasterFeePackage,
+    MasterFeePackageItem,
     Payment,
     PaymentMethod,
     StudentFeeAssignment,
@@ -27,6 +29,13 @@ from .models import (
 class FeeStructureForm(forms.ModelForm):
     """Name, class, session, term. The items come from the formset below."""
 
+    template = forms.ModelChoiceField(
+        queryset=MasterFeePackage.objects.none(),
+        label="Base Master Package",
+        required=False,
+        empty_label="None (Custom standalone package)",
+        help_text="Optionally link to or prefill from a master fee package.",
+    )
     klass = forms.ModelChoiceField(
         queryset=Class.objects.none(),
         label="Class",
@@ -45,11 +54,14 @@ class FeeStructureForm(forms.ModelForm):
 
     class Meta:
         model = FeeStructure
-        fields = ("name", "klass", "session", "term")
+        fields = ("name", "template", "klass", "session", "term")
 
     def __init__(self, *args, institution_id=None, **kwargs):
         super().__init__(*args, **kwargs)
         if institution_id:
+            self.fields["template"].queryset = MasterFeePackage.objects.filter(
+                institution_id=institution_id, is_active=True
+            ).order_by("name")
             self.fields["klass"].queryset = Class.objects.filter(
                 institution_id=institution_id, status=ClassStatus.ACTIVE
             ).order_by("order", "name")
@@ -59,6 +71,83 @@ class FeeStructureForm(forms.ModelForm):
             self.fields["term"].queryset = Term.objects.filter(
                 institution_id=institution_id
             ).order_by("session__start_date", "start_date")
+
+
+class MasterFeePackageForm(forms.ModelForm):
+    class Meta:
+        model = MasterFeePackage
+        fields = ("name", "description")
+        widgets = {
+            "name": forms.TextInput(attrs={"placeholder": "e.g. Junior Secondary Day Student Package"}),
+            "description": forms.Textarea(attrs={"rows": 2, "placeholder": "Optional description or notes for this fee package..."}),
+        }
+
+
+class MasterFeePackageItemForm(forms.ModelForm):
+    is_mandatory = forms.BooleanField(
+        required=False,
+        initial=True,
+        label="Mandatory",
+        help_text="Uncheck if optional.",
+    )
+
+    class Meta:
+        model = MasterFeePackageItem
+        fields = ("name", "amount", "is_mandatory")
+        widgets = {
+            "name": forms.TextInput(attrs={"placeholder": "e.g. Tuition / PTA / Books"}),
+            "amount": forms.NumberInput(attrs={"step": "0.01", "placeholder": "0.00"}),
+        }
+
+
+MasterFeePackageItemFormSet = inlineformset_factory(
+    MasterFeePackage,
+    MasterFeePackageItem,
+    form=MasterFeePackageItemForm,
+    fields=("name", "amount", "is_mandatory"),
+    extra=1,
+    can_delete=True,
+)
+
+
+class ApplyPackageToClassesForm(forms.Form):
+    package = forms.ModelChoiceField(
+        queryset=MasterFeePackage.objects.none(),
+        label="Master Fee Package",
+        empty_label="Select a Master Package",
+    )
+    session = forms.ModelChoiceField(
+        queryset=Session.objects.none(),
+        label="Academic Session",
+        empty_label="Select a session",
+    )
+    term = forms.ModelChoiceField(
+        queryset=Term.objects.none(),
+        label="Academic Term",
+        empty_label="Select a term",
+    )
+    classes = forms.ModelMultipleChoiceField(
+        queryset=Class.objects.none(),
+        label="Target Classes",
+        widget=forms.CheckboxSelectMultiple,
+        help_text="Select one or more classes to assign this fee package to.",
+    )
+
+    def __init__(self, *args, institution_id=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        if institution_id:
+            self.fields["package"].queryset = MasterFeePackage.objects.filter(
+                institution_id=institution_id, is_active=True
+            ).order_by("name")
+            self.fields["session"].queryset = Session.objects.filter(
+                institution_id=institution_id
+            ).order_by("-start_date")
+            self.fields["term"].queryset = Term.objects.filter(
+                institution_id=institution_id
+            ).order_by("session__start_date", "start_date")
+            self.fields["classes"].queryset = Class.objects.filter(
+                institution_id=institution_id, status=ClassStatus.ACTIVE
+            ).order_by("order", "name")
 
 
 class FeeStructureItemForm(forms.ModelForm):

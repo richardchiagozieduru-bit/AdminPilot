@@ -12,21 +12,48 @@ All three billable roles (Owner, Administrator, Bursar) see this page;
 {% block content %}
   <div class="page-header">
     <div>
-      <h1>Fee Structures</h1>
+      <h1>Fee Management</h1>
       <p class="page-header__sub">
         {% if is_paginated %}
-          {{ page_obj.paginator.count }} fee structures
+          {{ page_obj.paginator.count }} class fee structures
         {% else %}
-          {{ fee_structures|length }} fee structures
+          {{ fee_structures|length }} class fee structures
         {% endif %}
         {% if selected_term_id %}· filtered{% endif %}
       </p>
     </div>
     {% if can_manage %}
-      <div class="quick-actions">
-        <a class="btn btn--primary" href="{% url 'billing:fee_structure_create' %}">Create fee structure</a>
+      <div class="quick-actions" style="display:flex; gap:var(--space-2); flex-wrap:wrap;">
+        <a class="btn btn--secondary" href="{% url 'billing:package_apply' %}" style="display:inline-flex; align-items:center; gap:6px;">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="9 11 12 14 22 4"></polyline>
+            <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path>
+          </svg>
+          Apply Package to Classes
+        </a>
+        <a class="btn btn--primary" href="{% url 'billing:fee_structure_create' %}" style="display:inline-flex; align-items:center; gap:6px;">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="12" y1="5" x2="12" y2="19"></line>
+            <line x1="5" y1="12" x2="19" y2="12"></line>
+          </svg>
+          Create Fee Structure
+        </a>
       </div>
     {% endif %}
+  </div>
+
+  <!-- Section Navigation Tabs -->
+  <div style="display:flex; gap:var(--space-2); margin-bottom:var(--space-4); border-bottom:1px solid var(--color-border); padding-bottom:var(--space-2);">
+    <a href="{% url 'billing:fee_structure_list' %}"
+       class="btn btn--sm"
+       style="font-weight:700; text-decoration:none; background:var(--color-primary-50, #eff6ff); color:var(--color-primary, #2563eb); border:1px solid var(--color-primary-200, #bfdbfe); padding:6px 14px; border-radius:var(--radius-sm);">
+      Class Fee Structures ({% if is_paginated %}{{ page_obj.paginator.count }}{% else %}{{ fee_structures|length }}{% endif %})
+    </a>
+    <a href="{% url 'billing:package_list' %}"
+       class="btn btn--sm btn--link"
+       style="font-weight:600; text-decoration:none; color:var(--color-text-muted); padding:6px 14px; border-radius:var(--radius-sm);">
+      Master Fee Packages ({{ packages_count|default:"0" }})
+    </a>
   </div>
 
   <div class="card">

@@ -53,17 +53,22 @@ class ClassListView(RoleRequiredMixin, TenantScopedQuerysetMixin, ListView):
 
     def get_queryset(self):
         queryset = super().get_queryset()
-        term = Term.objects.filter(is_current=True).first()
-        if term is None:
-            # No current term means no enrollment can belong to one, so every
-            # count is zero. Annotating without the term filter would instead
-            # count every enrollment the class has ever had.
+        session = Session.objects.filter(is_current=True).first()
+        if session is None:
+            term = Term.objects.filter(is_current=True).first()
+            if term:
+                session = term.session
+
+        if session is None:
+            # No current session means no enrollment belongs to the current academic year,
+            # so the queryset is not annotated and shows 0.
             return queryset
+
         return queryset.annotate(
             student_count=Count(
-                "enrollments",
+                "enrollments__student",
                 filter=Q(
-                    enrollments__term=term,
+                    enrollments__session=session,
                     enrollments__student__status=StudentStatus.ACTIVE,
                 ),
                 distinct=True,
@@ -72,7 +77,12 @@ class ClassListView(RoleRequiredMixin, TenantScopedQuerysetMixin, ListView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        context["current_term"] = Term.objects.filter(is_current=True).first()
+        current_session = Session.objects.filter(is_current=True).first()
+        current_term = Term.objects.filter(is_current=True).first()
+        if not current_session and current_term:
+            current_session = current_term.session
+        context["current_session"] = current_session
+        context["current_term"] = current_term
         context["can_manage"] = self.can_manage()
         context["active_count"] = sum(
             1 for klass in context["classes"] if klass.status == ClassStatus.ACTIVE

@@ -17,10 +17,12 @@ that would 403 on click.
       <h1>Classes</h1>
       <p class="page-header__sub">
         {{ active_count }} active
-        {% if current_term %}
+        {% if current_session %}
+          · counts are for {{ current_session.name }}{% if current_term %} — {{ current_term.name }}{% endif %}
+        {% elif current_term %}
           · counts are for {{ current_term.session.name }} — {{ current_term.name }}
         {% else %}
-          · no current term set, so no enrolment counts yet
+          · no current session set, so no enrolment counts yet
         {% endif %}
       </p>
     </div>

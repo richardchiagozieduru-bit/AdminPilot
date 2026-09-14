@@ -21,19 +21,27 @@ from accounts.models import User
 from billing.models import (
     CreditTransaction,
     FeeStructure,
+    MasterFeePackage,
+    MasterFeePackageItem,
     Payment,
+    PaymentItemAllocation,
     PaymentMethod,
     PaymentStatus,
     Receipt,
     StudentFeeAssignment,
+    StudentFeeItem,
 )
 from billing.services import (
     adjust_student_fee,
+    apply_package_to_classes,
+    convert_structure_to_package,
     create_fee_structure,
+    create_master_package,
     delete_fee_structure,
     record_payment,
     reverse_payment,
     update_fee_structure,
+    update_master_package,
 )
 from core.models import AuditLog
 from core.tests.school import ApprovedSchoolTestCase
@@ -558,5 +566,273 @@ class BillingViewsAndPermissionsTests(ApprovedSchoolTestCase):
         )
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, str(self.assignment.pk))
+
+
+class MasterFeePackageAndCustomReceiptTests(ApprovedSchoolTestCase):
+    def setUp(self):
+        super().setUp()
+        self.session, self.term, self.classes = self.configure_school()
+        self.klass_a = self.classes[0]
+        self.klass_b = self.classes[1]
+        self.student_a = self.enroll_a_student(self.klass_a, self.session, self.term, admission_suffix="000001")
+        self.student_b = self.enroll_a_student(self.klass_b, self.session, self.term, admission_suffix="000002")
+        with self.in_school():
+            self.owner = User.objects.get(email=self.OWNER_EMAIL)
+
+    def test_custom_student_fee_item_allocated_and_shown_on_receipt(self):
+        """Fix verification: custom StudentFeeItem (additional charge) is properly
+
+        allocated during payment and rendered on the printed receipt.
+        """
+        with self.in_school():
+            structure = create_fee_structure(
+                institution_id=self.institution.pk,
+                name="SS1 First Term Standard",
+                klass=self.klass_a,
+                session=self.session,
+                term=self.term,
+                items=[{"name": "Tuition", "amount": Decimal("50000.00")}],
+                actor=self.owner,
+            )
+            assignment = StudentFeeAssignment.unscoped.get(
+                student=self.student_a, fee_structure=structure
+            )
+            self.assertEqual(assignment.amount_due, Decimal("50000.00"))
+
+            # Bursar customizes student: adds custom lab breakage fee
+            custom_item = StudentFeeItem.unscoped.create(
+                institution_id=self.institution.pk,
+                assignment=assignment,
+                name="Laboratory Breakage Fee",
+                amount=Decimal("12500.00"),
+                original_amount=Decimal("12500.00"),
+                is_mandatory=True,
+                is_included=True,
+                adjustment_type="additional",
+            )
+            assignment.amount_due += Decimal("12500.00")
+            assignment.save(update_fields=["amount_due"])
+
+            self.assertEqual(assignment.outstanding_balance, Decimal("62500.00"))
+
+            # Record full payment
+            payment, receipt, _, _ = record_payment(
+                assignment=assignment,
+                amount=Decimal("62500.00"),
+                payment_date=datetime.date.today(),
+                method=PaymentMethod.TRANSFER,
+                actor=self.owner,
+            )
+
+            # Assert allocation exists specifically for custom item
+            custom_alloc = PaymentItemAllocation.unscoped.get(
+                payment=payment, student_fee_item=custom_item
+            )
+            self.assertEqual(custom_alloc.item_name, "Laboratory Breakage Fee")
+            self.assertEqual(custom_alloc.amount, Decimal("12500.00"))
+
+            # Assert base fee is also allocated
+            base_item = structure.items.get(name="Tuition")
+            base_alloc = PaymentItemAllocation.unscoped.get(
+                payment=payment, fee_item=base_item
+            )
+            self.assertEqual(base_alloc.item_name, "Tuition")
+            self.assertEqual(base_alloc.amount, Decimal("50000.00"))
+
+            # Total payment matches sum of allocations
+            self.assertEqual(payment.allocations.count(), 2)
+
+        # Verify receipt page renders custom fee item line
+        self.sign_in_owner()
+        response = self.client.get(
+            reverse("billing:receipt_detail", kwargs={"pk": receipt.pk})
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Laboratory Breakage Fee")
+        self.assertContains(response, "12500.00")
+        self.assertContains(response, "Tuition")
+        self.assertContains(response, "50000.00")
+
+        # Verify payment detail page also renders itemized breakdown
+        p_resp = self.client.get(
+            reverse("billing:payment_detail", kwargs={"pk": payment.pk})
+        )
+        self.assertEqual(p_resp.status_code, 200)
+        self.assertContains(p_resp, "Laboratory Breakage Fee")
+        self.assertContains(p_resp, "12500.00")
+
+    def test_master_fee_package_crud_and_multi_class_apply(self):
+        """Verify master package creation, updating, and multi-class deployment."""
+        with self.in_school():
+            package = create_master_package(
+                institution_id=self.institution.pk,
+                name="Senior Secondary Day Student",
+                description="Comprehensive term package for SSS classes",
+                items=[
+                    {"name": "Tuition", "amount": Decimal("40000.00"), "is_mandatory": True},
+                    {"name": "PTA Levy", "amount": Decimal("5000.00"), "is_mandatory": True},
+                    {"name": "ICT / Tech Lab", "amount": Decimal("10000.00"), "is_mandatory": False},
+                ],
+                actor=self.owner,
+            )
+
+            self.assertEqual(package.total_amount, Decimal("55000.00"))
+            self.assertEqual(package.items.count(), 3)
+            self.assertTrue(package.is_active)
+
+            # Apply package across both klass_a and klass_b
+            created = apply_package_to_classes(
+                institution_id=self.institution.pk,
+                package=package,
+                class_ids=[self.klass_a.pk, self.klass_b.pk],
+                session=self.session,
+                term=self.term,
+                actor=self.owner,
+            )
+
+            self.assertEqual(len(created), 2)
+            for struct in created:
+                self.assertEqual(struct.template, package)
+                self.assertEqual(struct.total_amount, Decimal("55000.00"))
+                self.assertEqual(struct.items.count(), 3)
+
+            # Verify auto-assignments for students in both classes
+            assign_a = StudentFeeAssignment.unscoped.get(
+                student=self.student_a, fee_structure=created[0]
+            )
+            self.assertEqual(assign_a.amount_due, Decimal("55000.00"))
+
+            assign_b = StudentFeeAssignment.unscoped.get(
+                student=self.student_b, fee_structure=created[1]
+            )
+            self.assertEqual(assign_b.amount_due, Decimal("55000.00"))
+
+    def test_convert_fee_structure_to_master_package(self):
+        """Grandfathering verification: convert an existing FeeStructure into a Master Package."""
+        with self.in_school():
+            structure = create_fee_structure(
+                institution_id=self.institution.pk,
+                name="Legacy SS1 Term 1 Fee",
+                klass=self.klass_a,
+                session=self.session,
+                term=self.term,
+                items=[
+                    {"name": "Tuition", "amount": Decimal("35000.00")},
+                    {"name": "Exam Fee", "amount": Decimal("7500.00")},
+                ],
+                actor=self.owner,
+            )
+
+            package = convert_structure_to_package(
+                structure=structure,
+                package_name="SSS Reusable Blueprint",
+                actor=self.owner,
+            )
+
+            self.assertEqual(package.name, "SSS Reusable Blueprint")
+            self.assertEqual(package.total_amount, Decimal("42500.00"))
+            self.assertEqual(package.items.count(), 2)
+
+            structure.refresh_from_db()
+            self.assertEqual(structure.template, package)
+
+    def test_package_views_and_permissions(self):
+        """Verify package listing, creation, and application HTTP views."""
+        self.sign_in_owner()
+
+        # Create master package via HTTP POST
+        create_resp = self.client.post(
+            reverse("billing:package_create"),
+            {
+                "name": "HTTP Junior Package",
+                "description": "Created via form",
+                "items-TOTAL_FORMS": "2",
+                "items-INITIAL_FORMS": "0",
+                "items-MIN_NUM_FORMS": "1",
+                "items-MAX_NUM_FORMS": "1000",
+                "items-0-name": "Tuition",
+                "items-0-amount": "25000.00",
+                "items-0-is_mandatory": "True",
+                "items-1-name": "Sports",
+                "items-1-amount": "5000.00",
+                "items-1-is_mandatory": "True",
+            },
+        )
+        self.assertEqual(create_resp.status_code, 302)
+
+        with self.in_school():
+            pkg = MasterFeePackage.objects.get(name="HTTP Junior Package")
+            self.assertEqual(pkg.total_amount, Decimal("30000.00"))
+
+        # View package list
+        list_resp = self.client.get(reverse("billing:package_list"))
+        self.assertEqual(list_resp.status_code, 200)
+        self.assertContains(list_resp, "HTTP Junior Package")
+        self.assertContains(list_resp, "30000.00")
+
+        # Apply package to classes via HTTP POST
+        apply_resp = self.client.post(
+            reverse("billing:package_apply"),
+            {
+                "package": pkg.pk,
+                "session": self.session.pk,
+                "term": self.term.pk,
+                "classes": [self.klass_a.pk],
+            },
+        )
+        self.assertEqual(apply_resp.status_code, 302)
+        with self.in_school():
+            self.assertTrue(
+                FeeStructure.objects.filter(
+                    template=pkg, klass=self.klass_a, term=self.term
+                ).exists()
+            )
+
+        # Staff permission denied
+        self.sign_in_as("Staff")
+        denied_resp = self.client.get(reverse("billing:package_list"))
+        self.assertEqual(denied_resp.status_code, 403)
+
+    def test_fee_structure_update_propagates_new_items_to_students(self):
+        """Verify adding a new item to fee structure updates enrolled student fee items."""
+        from billing.services import update_fee_structure
+        with self.in_school():
+            # Initial structure with Tuition 20,000
+            struct = create_fee_structure(
+                institution_id=self.school.pk,
+                name="Primary 1 Fees",
+                klass=self.klass_a,
+                session=self.session,
+                term=self.term,
+                items=[{"name": "Tuition", "amount": Decimal("20000.00"), "is_mandatory": True}],
+                actor=self.owner,
+            )
+            assignment = StudentFeeAssignment.objects.get(fee_structure=struct, student=self.student_a)
+            self.assertEqual(assignment.amount_due, Decimal("20000.00"))
+            self.assertEqual(assignment.items.count(), 1)
+
+            # Update structure: add Exam Fee 5,000 (total becomes 25,000)
+            update_fee_structure(
+                fee_structure=struct,
+                name="Primary 1 Fees Updated",
+                items=[
+                    {"name": "Tuition", "amount": Decimal("20000.00"), "is_mandatory": True},
+                    {"name": "Exam Fee", "amount": Decimal("5000.00"), "is_mandatory": True},
+                ],
+                actor=self.owner,
+            )
+
+            assignment.refresh_from_db()
+            self.assertEqual(assignment.amount_due, Decimal("25000.00"))
+            self.assertEqual(assignment.items.count(), 2)
+            self.assertTrue(assignment.items.filter(name="Exam Fee", amount=Decimal("5000.00")).exists())
+
+            # Item breakdown also has both items totaling 25,000
+            breakdown = assignment.get_item_breakdown()
+            self.assertEqual(len(breakdown), 2)
+            total_billed = sum(Decimal(str(b["billed"])) for b in breakdown)
+            self.assertEqual(total_billed, Decimal("25000.00"))
+
+
 
 

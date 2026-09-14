@@ -21,10 +21,24 @@ per-student adjustment view. The edit link disappears.
         {% else %}
           <span class="badge badge--success">Open</span>
         {% endif %}
+        {% if fee_structure.template %}
+          · <span class="badge badge--info" style="font-size:11px;">Blueprint: {{ fee_structure.template.name }}</span>
+        {% endif %}
       </p>
     </div>
     {% if can_manage %}
       <div class="quick-actions" style="display:flex; align-items:center; gap:var(--space-2); flex-wrap:wrap;">
+        <form method="post" action="{% url 'billing:fee_structure_save_as_package' fee_structure.pk %}" style="display:inline;">
+          {% csrf_token %}
+          <button type="submit" class="btn btn--secondary" title="Save this fee structure as a reusable Master Package blueprint">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:4px;">
+              <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
+              <polyline points="17 21 17 13 7 13 7 21"></polyline>
+              <polyline points="7 3 7 8 15 8"></polyline>
+            </svg>
+            Save as Master Package
+          </button>
+        </form>
         <a class="btn btn--secondary" href="{% url 'billing:fee_structure_edit' fee_structure.pk %}">Edit</a>
         
         <form method="post" action="{% url 'billing:fee_structure_toggle_lock' fee_structure.pk %}" style="display:inline;">
@@ -75,8 +89,8 @@ per-student adjustment view. The edit link disappears.
                 <polyline points="1 20 1 14 7 14"></polyline>
                 <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
               </svg>
-              {% if assignment_count < total_class_students %}
-                Sync & Assign to Remaining Students ({{ total_class_students|add:"-"|add:assignment_count }})
+              {% if unassigned_count > 0 %}
+                Sync & Assign to Remaining Students ({{ unassigned_count }})
               {% else %}
                 Re-sync Class Students
               {% endif %}

@@ -13,6 +13,42 @@ from . import views
 app_name = "billing"
 
 urlpatterns = [
+    # Master Fee Packages (Blueprints & Multi-Class Assignment)
+    path(
+        "fee-structures/packages/",
+        views.MasterPackageListView.as_view(),
+        name="package_list",
+    ),
+    path(
+        "fee-structures/packages/add/",
+        views.MasterPackageCreateView.as_view(),
+        name="package_create",
+    ),
+    path(
+        "fee-structures/packages/<int:pk>/edit/",
+        views.MasterPackageUpdateView.as_view(),
+        name="package_edit",
+    ),
+    path(
+        "fee-structures/packages/<int:pk>/delete/",
+        views.MasterPackageDeleteView.as_view(),
+        name="package_delete",
+    ),
+    path(
+        "fee-structures/packages/apply/",
+        views.ApplyPackageToClassesView.as_view(),
+        name="package_apply",
+    ),
+    path(
+        "fee-structures/packages/<int:pk>/apply/",
+        views.ApplyPackageToClassesView.as_view(),
+        name="package_apply_single",
+    ),
+    path(
+        "fee-structures/<int:pk>/save-as-package/",
+        views.FeeStructureSaveAsPackageView.as_view(),
+        name="fee_structure_save_as_package",
+    ),
     # Fee Structures
     path(
         "fee-structures/",

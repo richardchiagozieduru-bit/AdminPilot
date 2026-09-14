@@ -1,0 +1,127 @@
+{% extends "base.html" %}
+
+{% comment %}
+Apply a Master Fee Package across multiple classes for an academic session and term.
+{% endcomment %}
+
+{% block title %}Apply Fee Package to Classes · AdminPilot{% endblock %}
+
+{% block content %}
+  <div class="page-header">
+    <div>
+      <h1>Apply Package to Classes</h1>
+      <p class="page-header__sub">
+        Deploy a master fee blueprint across multiple classes in a single step.
+      </p>
+    </div>
+    <div class="quick-actions">
+      <a class="btn btn--secondary" href="{% url 'billing:package_list' %}">← Back to Master Packages</a>
+    </div>
+  </div>
+
+  <div class="card">
+    {% include "includes/form_errors.html" %}
+
+    <form method="post" class="form" id="applyPackageForm" novalidate>
+      {% csrf_token %}
+
+      <!-- Blueprint Deployment Explanation -->
+      <div style="background:var(--color-primary-50, #eff6ff); border:1px solid var(--color-primary-200, #bfdbfe); border-radius:var(--radius-md); padding:var(--space-3) var(--space-4); margin-bottom:var(--space-5); display:flex; align-items:flex-start; gap:var(--space-3);">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--color-primary, #2563eb)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0; margin-top:2px;">
+          <circle cx="12" cy="12" r="10"></circle>
+          <line x1="12" y1="16" x2="12" y2="12"></line>
+          <line x1="12" y1="8" x2="12.01" y2="8"></line>
+        </svg>
+        <div style="font-size:var(--text-sm); color:var(--color-text);">
+          <strong>One-Click Multi-Class Billing:</strong>
+          AdminPilot will create a term Fee Structure for each selected class, copy all line items from the blueprint, and immediately assign all active enrolled students in those classes. Existing fee structures for the same class and term will not be overwritten.
+        </div>
+      </div>
+
+      <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: var(--space-4); margin-bottom: var(--space-6);">
+        <div class="field" style="margin-bottom:0;">
+          <label class="field__label" for="{{ form.package.id_for_label }}">
+            {{ form.package.label }} <span style="color:var(--color-danger, #dc2626);">*</span>
+          </label>
+          {{ form.package }}
+          {% if form.package.errors %}
+            <ul class="field__errors">
+              {% for error in form.package.errors %}<li>{{ error }}</li>{% endfor %}
+            </ul>
+          {% endif %}
+        </div>
+
+        <div class="field" style="margin-bottom:0;">
+          <label class="field__label" for="{{ form.session.id_for_label }}">
+            {{ form.session.label }} <span style="color:var(--color-danger, #dc2626);">*</span>
+          </label>
+          {{ form.session }}
+          {% if form.session.errors %}
+            <ul class="field__errors">
+              {% for error in form.session.errors %}<li>{{ error }}</li>{% endfor %}
+            </ul>
+          {% endif %}
+        </div>
+
+        <div class="field" style="margin-bottom:0;">
+          <label class="field__label" for="{{ form.term.id_for_label }}">
+            {{ form.term.label }} <span style="color:var(--color-danger, #dc2626);">*</span>
+          </label>
+          {{ form.term }}
+          {% if form.term.errors %}
+            <ul class="field__errors">
+              {% for error in form.term.errors %}<li>{{ error }}</li>{% endfor %}
+            </ul>
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="card" style="background:var(--color-bg-subtle, #f8fafc); border:1px solid var(--color-border); padding:var(--space-4); margin-bottom:var(--space-6);">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:var(--space-3); flex-wrap:wrap; gap:var(--space-2);">
+          <div>
+            <h2 class="card__title" style="margin:0; font-size:var(--text-md);">Select Target Classes</h2>
+            <p class="card__hint" style="margin:0;">Pick which classes should receive this fee package.</p>
+          </div>
+          <div style="display:flex; gap:var(--space-2);">
+            <button type="button" class="btn btn--secondary btn--sm" onclick="toggleAllClasses(true)">Select All</button>
+            <button type="button" class="btn btn--secondary btn--sm" onclick="toggleAllClasses(false)">Deselect All</button>
+          </div>
+        </div>
+
+        {% if form.classes.errors %}
+          <ul class="field__errors" style="margin-bottom:var(--space-3);">
+            {% for error in form.classes.errors %}<li>{{ error }}</li>{% endfor %}
+          </ul>
+        {% endif %}
+
+        <div style="display:grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: var(--space-3); padding-top:var(--space-2);">
+          {% for choice in form.classes %}
+            <label style="display:flex; align-items:center; gap:8px; padding:var(--space-2) var(--space-3); background:var(--color-surface, #ffffff); border:1px solid var(--color-border); border-radius:var(--radius-sm); cursor:pointer; font-weight:500;">
+              {{ choice.tag }}
+              <span>{{ choice.choice_label }}</span>
+            </label>
+          {% endfor %}
+        </div>
+      </div>
+
+      <div class="form-actions">
+        <button type="submit" class="btn btn--primary" style="display:inline-flex; align-items:center; gap:6px;">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="20 6 9 17 4 12"></polyline>
+          </svg>
+          Deploy Fee Package to Selected Classes
+        </button>
+        <a class="btn btn--secondary" href="{% url 'billing:package_list' %}">Cancel</a>
+      </div>
+    </form>
+  </div>
+
+  <script>
+    function toggleAllClasses(checked) {
+      var checkboxes = document.querySelectorAll('input[type="checkbox"][name="classes"]');
+      checkboxes.forEach(function(cb) {
+        cb.checked = checked;
+      });
+    }
+  </script>
+{% endblock %}

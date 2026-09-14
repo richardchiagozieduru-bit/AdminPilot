@@ -28,8 +28,11 @@ from core.services import write_audit_log
 
 from .forms import (
     ApplyCreditForm,
+    ApplyPackageToClassesForm,
     FeeStructureForm,
     FeeStructureItemFormSet,
+    MasterFeePackageForm,
+    MasterFeePackageItemFormSet,
     PaymentForm,
     PaymentReversalForm,
     StudentFeeAdjustmentForm,
@@ -38,6 +41,8 @@ from .models import (
     CreditTransaction,
     FeeStructure,
     FeeStructureItem,
+    MasterFeePackage,
+    MasterFeePackageItem,
     Payment,
     PaymentItemAllocation,
     PaymentMethod,
@@ -48,8 +53,11 @@ from .models import (
 )
 from .services import (
     adjust_student_fee,
+    apply_package_to_classes,
     apply_student_credit,
+    convert_structure_to_package,
     create_fee_structure,
+    create_master_package,
     customize_student_fee_package,
     delete_fee_structure,
     record_payment,
@@ -57,6 +65,7 @@ from .services import (
     sync_fee_structure_assignments,
     toggle_fee_structure_lock,
     update_fee_structure,
+    update_master_package,
 )
 
 
@@ -110,7 +119,27 @@ class FeeStructureListView(
             "session__start_date", "start_date"
         )
         context["selected_term_id"] = self.request.GET.get("term_id", "")
+        context["packages_count"] = MasterFeePackage.objects.filter(
+            institution_id=self.request.institution_id, is_active=True
+        ).count()
+        context["active_tab"] = "classes"
         return context
+
+
+def _get_master_packages_json(institution_id):
+    packages = MasterFeePackage.objects.filter(
+        institution_id=institution_id, is_active=True
+    ).prefetch_related("items")
+    pkg_data = {}
+    for p in packages:
+        pkg_data[str(p.pk)] = {
+            "name": p.name,
+            "items": [
+                {"name": it.name, "amount": str(it.amount), "is_mandatory": it.is_mandatory}
+                for it in p.items.all()
+            ],
+        }
+    return pkg_data
 
 
 class FeeStructureCreateView(RoleRequiredMixin, TemplateView):
@@ -130,6 +159,11 @@ class FeeStructureCreateView(RoleRequiredMixin, TemplateView):
         )
         formset = FeeStructureItemFormSet(data, prefix="items")
         return form, formset
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["packages_json"] = _get_master_packages_json(self.request.institution_id)
+        return context
 
     def get(self, request, *args, **kwargs):
         form, formset = self.get_form_and_formset()
@@ -170,6 +204,10 @@ class FeeStructureCreateView(RoleRequiredMixin, TemplateView):
                     actor=request.user,
                     ip_address=request.META.get("REMOTE_ADDR"),
                 )
+                if form.cleaned_data.get("template"):
+                    structure.template = form.cleaned_data["template"]
+                    structure.save(update_fields=["template"])
+
                 messages.success(
                     request,
                     f"Fee structure '{structure.name}' created successfully.",
@@ -218,6 +256,9 @@ class FeeStructureDetailView(
             .distinct()
             .count()
         )
+        context["unassigned_count"] = max(
+            0, context["total_class_students"] - context["assignment_count"]
+        )
         return context
 
 
@@ -231,6 +272,11 @@ class FeeStructureUpdateView(RoleRequiredMixin, TenantScopedQuerysetMixin, Templ
     template_name = "billing/fee_structure_form.html"
     module = "fee_structures"
     module_action = "manage"
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["packages_json"] = _get_master_packages_json(self.request.institution_id)
+        return context
 
     def get_object(self):
         return get_object_or_404(
@@ -450,6 +496,299 @@ class FeeStructureDeleteView(
                 request, "Something went wrong deleting the fee structure."
             )
             return redirect("billing:fee_structure_detail", pk=fee_structure.pk)
+
+
+# --------------------------------------------------------------------------- #
+# Master Fee Packages (Blueprints)
+# --------------------------------------------------------------------------- #
+class MasterPackageListView(RoleRequiredMixin, TenantScopedQuerysetMixin, ListView):
+    """`/fee-structures/packages/` — catalog of reusable master fee packages."""
+
+    model = MasterFeePackage
+    template_name = "billing/package_list.html"
+    context_object_name = "packages"
+    module = "fee_structures"
+
+    def get_queryset(self):
+        return (
+            super()
+            .get_queryset()
+            .filter(is_active=True)
+            .prefetch_related("items", "applied_structures__klass")
+        )
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["can_manage"] = self.can_manage()
+        context["active_tab"] = "packages"
+        context["structures_count"] = FeeStructure.objects.filter(
+            institution_id=self.request.institution_id, is_active=True
+        ).count()
+        return context
+
+
+class MasterPackageCreateView(RoleRequiredMixin, TemplateView):
+    """`/fee-structures/packages/add/` — build a reusable master fee package."""
+
+    template_name = "billing/package_form.html"
+    module = "fee_structures"
+    module_action = "manage"
+
+    def get_form_and_formset(self, data=None):
+        form = MasterFeePackageForm(data)
+        formset = MasterFeePackageItemFormSet(data, prefix="items")
+        return form, formset
+
+    def get(self, request, *args, **kwargs):
+        form, formset = self.get_form_and_formset()
+        return self.render_to_response(
+            {"form": form, "formset": formset, "package": None}
+        )
+
+    def post(self, request, *args, **kwargs):
+        form, formset = self.get_form_and_formset(request.POST)
+        if form.is_valid() and formset.is_valid():
+            items = []
+            for item_form in formset:
+                if item_form.cleaned_data and not item_form.cleaned_data.get("DELETE", False):
+                    name = item_form.cleaned_data.get("name")
+                    amount = item_form.cleaned_data.get("amount")
+                    if name and amount is not None:
+                        items.append({
+                            "name": name,
+                            "amount": amount,
+                            "is_mandatory": item_form.cleaned_data.get("is_mandatory", True),
+                        })
+
+            if not items:
+                messages.error(request, "Add at least one fee item to this master package.")
+                return self.render_to_response({"form": form, "formset": formset, "package": None})
+
+            try:
+                pkg = create_master_package(
+                    institution_id=request.institution_id,
+                    name=form.cleaned_data["name"],
+                    description=form.cleaned_data.get("description", ""),
+                    items=items,
+                    actor=request.user,
+                    ip_address=request.META.get("REMOTE_ADDR"),
+                )
+                messages.success(request, f"Master Fee Package '{pkg.name}' created successfully.")
+                return redirect("billing:package_list")
+            except DatabaseError:
+                logger.exception("Failed creating master fee package")
+                messages.error(request, "Something went wrong saving that package. Please try again.")
+
+        return self.render_to_response({"form": form, "formset": formset, "package": None})
+
+
+class MasterPackageUpdateView(RoleRequiredMixin, TemplateView):
+    """`/fee-structures/packages/<id>/edit/` — edit a master fee package."""
+
+    template_name = "billing/package_form.html"
+    module = "fee_structures"
+    module_action = "manage"
+
+    def get_package(self):
+        return get_object_or_404(
+            MasterFeePackage.objects.filter(institution_id=self.request.institution_id),
+            pk=self.kwargs["pk"],
+        )
+
+    def get_form_and_formset(self, package, data=None):
+        form = MasterFeePackageForm(data, instance=package)
+        formset = MasterFeePackageItemFormSet(data, instance=package, prefix="items")
+        return form, formset
+
+    def get(self, request, *args, **kwargs):
+        package = self.get_package()
+        form, formset = self.get_form_and_formset(package)
+        return self.render_to_response(
+            {"form": form, "formset": formset, "package": package}
+        )
+
+    def post(self, request, *args, **kwargs):
+        package = self.get_package()
+        form, formset = self.get_form_and_formset(package, request.POST)
+        if form.is_valid() and formset.is_valid():
+            items = []
+            for item_form in formset:
+                if item_form.cleaned_data and not item_form.cleaned_data.get("DELETE", False):
+                    name = item_form.cleaned_data.get("name")
+                    amount = item_form.cleaned_data.get("amount")
+                    if name and amount is not None:
+                        items.append({
+                            "name": name,
+                            "amount": amount,
+                            "is_mandatory": item_form.cleaned_data.get("is_mandatory", True),
+                        })
+
+            if not items:
+                messages.error(request, "A master package must contain at least one fee item.")
+                return self.render_to_response({"form": form, "formset": formset, "package": package})
+
+            try:
+                update_master_package(
+                    package=package,
+                    name=form.cleaned_data["name"],
+                    description=form.cleaned_data.get("description", ""),
+                    items=items,
+                    actor=request.user,
+                    ip_address=request.META.get("REMOTE_ADDR"),
+                )
+                messages.success(request, f"Master Fee Package '{package.name}' updated successfully.")
+                return redirect("billing:package_list")
+            except DatabaseError:
+                logger.exception("Failed updating master fee package %s", package.pk)
+                messages.error(request, "Something went wrong updating the package. Please try again.")
+
+        return self.render_to_response({"form": form, "formset": formset, "package": package})
+
+
+class MasterPackageDeleteView(RoleRequiredMixin, TemplateView):
+    """`/fee-structures/packages/<id>/delete/` — confirmation and delete/archive for master package."""
+
+    template_name = "billing/package_confirm_delete.html"
+    module = "fee_structures"
+    module_action = "manage"
+
+    def get_object(self):
+        return get_object_or_404(
+            MasterFeePackage.objects.filter(institution_id=self.request.institution_id),
+            pk=self.kwargs["pk"],
+        )
+
+    def get(self, request, *args, **kwargs):
+        package = self.get_object()
+        return self.render_to_response({
+            "package": package,
+            "items": package.items.all(),
+            "applied_count": package.applied_structures.count(),
+        })
+
+    def post(self, request, *args, **kwargs):
+        package = self.get_object()
+        name = package.name
+        if package.applied_structures.exists():
+            package.is_active = False
+            package.save(update_fields=["is_active", "updated_at"])
+            messages.info(request, f"Master Fee Package '{name}' archived (historical class records remain intact).")
+        else:
+            package.delete()
+            messages.success(request, f"Master Fee Package '{name}' deleted.")
+        return redirect("billing:package_list")
+
+
+class ApplyPackageToClassesView(RoleRequiredMixin, TemplateView):
+    """`/fee-structures/packages/apply/` or `/fee-structures/packages/<pk>/apply/` — batch assign to classes."""
+
+    template_name = "billing/apply_package_to_classes.html"
+    module = "fee_structures"
+    module_action = "manage"
+
+    def get_initial_package(self):
+        pk = self.kwargs.get("pk")
+        if pk:
+            return get_object_or_404(
+                MasterFeePackage.objects.filter(institution_id=self.request.institution_id),
+                pk=pk,
+            )
+        return None
+
+    def get(self, request, *args, **kwargs):
+        initial_pkg = self.get_initial_package()
+        current_session = Session.objects.filter(institution_id=request.institution_id, is_current=True).first()
+        current_term = Term.objects.filter(institution_id=request.institution_id, is_current=True).first()
+
+        initial_data = {}
+        if initial_pkg:
+            initial_data["package"] = initial_pkg.pk
+        if current_session:
+            initial_data["session"] = current_session.pk
+        if current_term:
+            initial_data["term"] = current_term.pk
+
+        form = ApplyPackageToClassesForm(initial=initial_data, institution_id=request.institution_id)
+        packages = MasterFeePackage.objects.filter(institution_id=request.institution_id, is_active=True).prefetch_related("items")
+        classes = Class.objects.filter(institution_id=request.institution_id, status=ClassStatus.ACTIVE).order_by("order", "name")
+
+        return self.render_to_response({
+            "form": form,
+            "selected_package": initial_pkg,
+            "packages": packages,
+            "classes": classes,
+            "current_session": current_session,
+            "current_term": current_term,
+        })
+
+    def post(self, request, *args, **kwargs):
+        form = ApplyPackageToClassesForm(request.POST, institution_id=request.institution_id)
+        if form.is_valid():
+            package = form.cleaned_data["package"]
+            session = form.cleaned_data["session"]
+            term = form.cleaned_data["term"]
+            selected_classes = form.cleaned_data["classes"]
+
+            if not selected_classes:
+                messages.error(request, "Select at least one class to assign this package to.")
+            else:
+                try:
+                    created = apply_package_to_classes(
+                        institution_id=request.institution_id,
+                        package=package,
+                        class_ids=[c.pk for c in selected_classes],
+                        session=session,
+                        term=term,
+                        actor=request.user,
+                        ip_address=request.META.get("REMOTE_ADDR"),
+                    )
+                    messages.success(
+                        request,
+                        f"Successfully applied '{package.name}' across {len(created)} class(es) for {session.name} ({term.name}). Active students have been auto-assigned.",
+                    )
+                    return redirect("billing:fee_structure_list")
+                except DatabaseError:
+                    logger.exception("Failed applying package to classes")
+                    messages.error(request, "A database error occurred while assigning the package. Please try again.")
+
+        packages = MasterFeePackage.objects.filter(institution_id=request.institution_id, is_active=True).prefetch_related("items")
+        classes = Class.objects.filter(institution_id=request.institution_id, status=ClassStatus.ACTIVE).order_by("order", "name")
+        return self.render_to_response({
+            "form": form,
+            "selected_package": form.cleaned_data.get("package") if form.is_bound else None,
+            "packages": packages,
+            "classes": classes,
+        })
+
+
+class FeeStructureSaveAsPackageView(RoleRequiredMixin, View):
+    """`/fee-structures/<pk>/save-as-package/` — convert existing fee structure to master package."""
+
+    module = "fee_structures"
+    module_action = "manage"
+
+    def post(self, request, pk):
+        structure = get_object_or_404(
+            FeeStructure.objects.filter(institution_id=request.institution_id),
+            pk=pk,
+        )
+        custom_name = request.POST.get("package_name", "").strip() or f"{structure.name} (Template)"
+        try:
+            package = convert_structure_to_package(
+                structure=structure,
+                package_name=custom_name,
+                actor=request.user,
+                ip_address=request.META.get("REMOTE_ADDR"),
+            )
+            messages.success(
+                request,
+                f"Fee structure '{structure.name}' successfully saved as Master Package '{package.name}'. You can now assign it to any class.",
+            )
+            return redirect("billing:package_list")
+        except DatabaseError:
+            logger.exception("Failed converting structure to package")
+            messages.error(request, "Could not convert fee structure to master package. Please try again.")
+            return redirect("billing:fee_structure_detail", pk=structure.pk)
 
 
 # --------------------------------------------------------------------------- #
@@ -1026,23 +1365,24 @@ class PaymentCreateView(RoleRequiredMixin, BillingFormKwargsMixin, FormView):
         context["selected_term_id"] = selected_term_id or ""
         context["initial_assignment_id"] = str(initial_assignment.pk) if initial_assignment else ""
 
-        # 2. Bulk fetch allocations grouped by (assignment_id, fee_item_id) in 1 query
+        # 2. Bulk fetch allocations grouped by (assignment_id, item_id) in 1 query
         allocations_qs = (
             PaymentItemAllocation.objects.filter(
                 payment__assignment__institution_id=self.request.institution_id,
                 payment__status=PaymentStatus.ACTIVE,
             )
             .order_by()
-            .values("payment__assignment_id", "fee_item_id")
+            .values("payment__assignment_id", "fee_item_id", "student_fee_item_id")
             .annotate(total_paid=models.Sum("amount"))
         )
         alloc_map = {}
         for r in allocations_qs:
             aid = r["payment__assignment_id"]
-            fid = r["fee_item_id"]
-            if aid not in alloc_map:
-                alloc_map[aid] = {}
-            alloc_map[aid][fid] = r["total_paid"]
+            fid = r["student_fee_item_id"] or r["fee_item_id"]
+            if fid:
+                if aid not in alloc_map:
+                    alloc_map[aid] = {}
+                alloc_map[aid][fid] = alloc_map[aid].get(fid, Decimal("0.00")) + (r["total_paid"] or Decimal("0.00"))
 
         # 3. Bulk fetch active payments sum & credit transactions per assignment in 1 query
         payments_qs = (
@@ -1103,6 +1443,16 @@ class PaymentCreateView(RoleRequiredMixin, BillingFormKwargsMixin, FormView):
                 total_active_paid = paid + applied_credits
                 unallocated_paid = max(Decimal("0.00"), total_active_paid - total_allocated)
                 remaining_unallocated = unallocated_paid
+
+                # If unadjusted and items count or amounts diverge, self-heal
+                if not a.adjustment_reason and (
+                    a.amount_due != a.fee_structure.total_amount
+                    or a.items.count() != a.fee_structure.items.count()
+                ):
+                    from .services import sync_student_fee_items
+                    sync_student_fee_items(a)
+                    a.refresh_from_db(fields=["amount_due"])
+                    outstanding = a.amount_due - (paid - applied_credits)
 
                 items_breakdown = []
                 # If student-specific customized items exist, use them; otherwise use fee structure items
@@ -1229,6 +1579,9 @@ class PaymentDetailView(
         context = super().get_context_data(**kwargs)
         context["can_manage"] = self.can_manage()
         context["student"] = self.object.assignment.student
+        context["allocations"] = self.object.allocations.select_related(
+            "fee_item", "student_fee_item"
+        )
         return context
 
 
@@ -1360,7 +1713,7 @@ class ReceiptDetailView(
         context["student"] = payment.assignment.student
         context["fee_structure"] = payment.assignment.fee_structure
         context["institution"] = payment.institution
-        context["allocations"] = payment.allocations.select_related("fee_item")
+        context["allocations"] = payment.allocations.select_related("fee_item", "student_fee_item")
         context["assignment"] = payment.assignment
         context["remaining_package_balance"] = payment.assignment.outstanding_balance
         return context

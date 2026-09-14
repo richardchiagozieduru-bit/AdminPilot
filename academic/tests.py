@@ -73,11 +73,11 @@ class ClassListTests(ApprovedSchoolTestCase):
             }
         self.assertEqual(counts, {"JSS 1A": 1, "JSS 1B": 0})
 
-    def test_counts_are_for_the_current_term_only(self):
-        """A class's count is "who is in it now", not "who ever was".
+    def test_counts_are_for_the_current_session(self):
+        """A class's count is for students enrolled in the current session across terms.
 
-        Without the term filter on the annotation, a school in its third term
-        would show three years of enrolments stacked in every class.
+        Students enrolled in a session remain active across all terms in that session
+        (First Term, Second Term, Third Term) without needing to be re-enrolled.
         """
         self.enroll_a_student(self.classes[0], self.session, self.term)
 
@@ -98,11 +98,15 @@ class ClassListTests(ApprovedSchoolTestCase):
                 klass.name: klass.student_count
                 for klass in response.context["classes"]
             }
-        self.assertEqual(counts, {"JSS 1A": 0, "JSS 1B": 0})
+        # Enrolled student in the session remains counted in Second Term
+        self.assertEqual(counts, {"JSS 1A": 1, "JSS 1B": 0})
 
-    def test_no_current_term_means_no_counts_rather_than_wrong_counts(self):
+    def test_no_current_session_means_no_counts_rather_than_wrong_counts(self):
         self.enroll_a_student(self.classes[0], self.session, self.term)
         with self.in_school():
+            Session.unscoped.filter(institution_id=self.institution.pk).update(
+                is_current=False
+            )
             Term.unscoped.filter(institution_id=self.institution.pk).update(
                 is_current=False
             )
@@ -113,10 +117,10 @@ class ClassListTests(ApprovedSchoolTestCase):
             first = response.context["classes"][0]
         self.assertIsNone(
             getattr(first, "student_count", None),
-            "With no current term the queryset must not be annotated at all — an "
+            "With no current session the queryset must not be annotated at all — an "
             "unfiltered count would show every enrolment the class ever had.",
         )
-        self.assertContains(response, "no current term set")
+        self.assertContains(response, "no current session set")
 
     def test_another_schools_classes_are_not_listed(self):
         """The tenant filter, through a real request.
@@ -415,11 +419,14 @@ class AcademicStructureTests(ApprovedSchoolTestCase):
                 "end_date": NEXT_SESSION_END.isoformat(),
             },
         )
-        self.assertRedirects(response, self.url)
-
         with self.in_school():
             added = Session.objects.get(name="2027/2028")
             self.session.refresh_from_db()
+
+        self.assertRedirects(
+            response,
+            f"{self.url}?new_session_id={added.pk}&open_form=term#term-form-card",
+        )
         self.assertFalse(added.is_current)
         self.assertTrue(self.session.is_current)
 

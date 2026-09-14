@@ -68,7 +68,7 @@ Receipt view with Itemized Breakdown (docs/08_UI_UX.md: /receipts/<id>/).
             {% for alloc in allocations %}
               <tr>
                 <td>
-                  <strong>{{ alloc.fee_item.name }}</strong>
+                  <strong>{{ alloc.item_name }}</strong>
                 </td>
                 <td style="text-align:right; font-family: var(--font-mono);">₦{{ alloc.amount }}</td>
               </tr>

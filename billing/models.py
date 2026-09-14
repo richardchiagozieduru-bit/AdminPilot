@@ -20,6 +20,50 @@ from core.models import TenantScopedModel
 from students.models import Student
 
 
+class MasterFeePackage(TenantScopedModel):
+    """A reusable master fee package blueprint (e.g. Junior Secondary Standard Package)."""
+
+    name = models.CharField(max_length=100)
+    description = models.TextField(blank=True)
+    total_amount = models.DecimalField(
+        max_digits=12, decimal_places=2, default=Decimal("0.00")
+    )
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "master_fee_packages"
+        ordering = ("-created_at",)
+
+    def __str__(self):
+        return f"{self.name} (₦{self.total_amount})"
+
+    def recalculate_total(self):
+        total = self.items.aggregate(total=models.Sum("amount"))["total"] or Decimal("0.00")
+        if self.total_amount != total:
+            self.total_amount = total
+            self.save(update_fields=["total_amount", "updated_at"])
+
+
+class MasterFeePackageItem(TenantScopedModel):
+    """One line item under a MasterFeePackage."""
+
+    package = models.ForeignKey(
+        MasterFeePackage, on_delete=models.CASCADE, related_name="items"
+    )
+    name = models.CharField(max_length=100)
+    amount = models.DecimalField(max_digits=12, decimal_places=2)
+    is_mandatory = models.BooleanField(default=True)
+
+    class Meta:
+        db_table = "master_fee_package_items"
+        ordering = ("id",)
+
+    def __str__(self):
+        return f"{self.name} — {self.amount}"
+
+
 class FeeStructure(TenantScopedModel):
     """A class-wide fee package for one session/term, with itemized lines."""
 
@@ -32,6 +76,13 @@ class FeeStructure(TenantScopedModel):
     )
     term = models.ForeignKey(
         Term, on_delete=models.PROTECT, related_name="fee_structures"
+    )
+    template = models.ForeignKey(
+        MasterFeePackage,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="applied_structures",
     )
     # Cached sum of items, recalculated on write only while unlocked — that
     # logic lives in the service layer (docs/02_Database.md CR-002).
@@ -159,25 +210,33 @@ class StudentFeeAssignment(TenantScopedModel):
             self.total_paid > Decimal("0.00") or self.amount_due == Decimal("0.00")
         )
 
-    def get_item_breakdown(self):
+    def get_item_breakdown(self, exclude_payment_id=None):
         """Returns a list of dicts for each FeeStructureItem / StudentFeeItem under this assignment,
         calculating how much has been paid to date, the remaining amount,
         and settlement status ('paid', 'partial', 'unpaid').
         """
         active_payments = self.payments.filter(status=PaymentStatus.ACTIVE)
+        if exclude_payment_id:
+            active_payments = active_payments.exclude(pk=exclude_payment_id)
         allocations = (
             PaymentItemAllocation.objects.filter(payment__in=active_payments)
             .order_by()
-            .values("fee_item_id")
+            .values("fee_item_id", "student_fee_item_id")
             .annotate(total_paid=models.Sum("amount"))
         )
-        paid_map = {a["fee_item_id"]: a["total_paid"] for a in allocations}
+        fee_item_paid_map = {}
+        student_item_paid_map = {}
+        for a in allocations:
+            if a["fee_item_id"]:
+                fee_item_paid_map[a["fee_item_id"]] = fee_item_paid_map.get(a["fee_item_id"], Decimal("0.00")) + (a["total_paid"] or Decimal("0.00"))
+            if a["student_fee_item_id"]:
+                student_item_paid_map[a["student_fee_item_id"]] = student_item_paid_map.get(a["student_fee_item_id"], Decimal("0.00")) + (a["total_paid"] or Decimal("0.00"))
 
         applied_credits = abs(
             self.applied_credits.order_by().aggregate(total=models.Sum("amount"))["total"]
             or Decimal("0.00")
         )
-        total_allocated = sum(paid_map.values(), Decimal("0.00"))
+        total_allocated = sum(fee_item_paid_map.values(), Decimal("0.00")) + sum(student_item_paid_map.values(), Decimal("0.00"))
         total_active_paid = (
             active_payments.order_by().aggregate(t=models.Sum("amount"))["t"]
             or Decimal("0.00")
@@ -186,6 +245,15 @@ class StudentFeeAssignment(TenantScopedModel):
 
         breakdown = []
         remaining_unallocated = unallocated_paid
+
+        # If unadjusted and items count or amounts diverge, self-heal
+        if not self.adjustment_reason and (
+            self.amount_due != self.fee_structure.total_amount
+            or self.items.count() != self.fee_structure.items.count()
+        ):
+            from .services import sync_student_fee_items
+            sync_student_fee_items(self)
+            self.refresh_from_db(fields=["amount_due"])
 
         # If student-specific customized items exist, use them; otherwise use fee structure items
         if self.items.exists():
@@ -203,7 +271,13 @@ class StudentFeeAssignment(TenantScopedModel):
             if not is_included:
                 continue
 
-            direct_paid = paid_map.get(item_key, Decimal("0.00"))
+            if isinstance(raw_item, StudentFeeItem):
+                if raw_item.fee_structure_item_id:
+                    direct_paid = fee_item_paid_map.get(raw_item.fee_structure_item_id, Decimal("0.00")) + student_item_paid_map.get(raw_item.pk, Decimal("0.00"))
+                else:
+                    direct_paid = student_item_paid_map.get(raw_item.pk, Decimal("0.00"))
+            else:
+                direct_paid = fee_item_paid_map.get(raw_item.pk, Decimal("0.00"))
 
             # Waterfall fallback for legacy payments
             fallback_applied = Decimal("0.00")
@@ -327,14 +401,17 @@ class Payment(TenantScopedModel):
 class PaymentItemAllocation(TenantScopedModel):
     """Line-item payment allocation (Custom Item Settlement).
     
-    Tracks the exact portion of a payment allocated to a specific FeeStructureItem.
+    Tracks the exact portion of a payment allocated to a specific FeeStructureItem or StudentFeeItem.
     """
 
     payment = models.ForeignKey(
         Payment, on_delete=models.CASCADE, related_name="allocations"
     )
     fee_item = models.ForeignKey(
-        FeeStructureItem, on_delete=models.PROTECT, related_name="allocations"
+        FeeStructureItem, on_delete=models.PROTECT, null=True, blank=True, related_name="allocations"
+    )
+    student_fee_item = models.ForeignKey(
+        "StudentFeeItem", on_delete=models.PROTECT, null=True, blank=True, related_name="allocations"
     )
     amount = models.DecimalField(max_digits=12, decimal_places=2)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -343,8 +420,16 @@ class PaymentItemAllocation(TenantScopedModel):
         db_table = "payment_item_allocations"
         ordering = ("id",)
 
+    @property
+    def item_name(self):
+        if self.student_fee_item:
+            return self.student_fee_item.name
+        if self.fee_item:
+            return self.fee_item.name
+        return "Fee Item"
+
     def __str__(self):
-        return f"{self.fee_item.name}: {self.amount} for Payment #{self.payment_id}"
+        return f"{self.item_name}: {self.amount} for Payment #{self.payment_id}"
 
 
 class Receipt(TenantScopedModel):

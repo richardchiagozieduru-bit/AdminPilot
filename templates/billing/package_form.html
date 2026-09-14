@@ -1,59 +1,72 @@
 {% extends "base.html" %}
 
-{% block title %}{% if fee_structure %}Edit {{ fee_structure.name }}{% else %}Create fee structure{% endif %} · AdminPilot{% endblock %}
+{% comment %}
+Master Fee Package Create / Edit Form with dynamic line item formsets and quick-add pills.
+{% endcomment %}
+
+{% block title %}{% if package %}Edit {{ package.name }}{% else %}Create Master Fee Package{% endif %} · AdminPilot{% endblock %}
 
 {% block content %}
   <div class="page-header">
     <div>
-      <h1>{% if fee_structure %}Edit fee structure{% else %}Create fee structure{% endif %}</h1>
+      <h1>{% if package %}Edit Master Fee Package{% else %}Create Master Fee Package{% endif %}</h1>
       <p class="page-header__sub">
-        {% if fee_structure %}
-          Editing {{ fee_structure.name }} for {{ fee_structure.klass.name }}.
+        {% if package %}
+          Updating blueprint {{ package.name }}.
         {% else %}
-          Define the fixed term fee package and its line-item breakdown.
+          Define a reusable fee package blueprint that can be assigned to any class.
         {% endif %}
       </p>
+    </div>
+    <div class="quick-actions">
+      <a class="btn btn--secondary" href="{% url 'billing:package_list' %}">← Back to Master Packages</a>
     </div>
   </div>
 
   <div class="card">
     {% include "includes/form_errors.html" %}
 
-    <form method="post" class="form" id="feeStructureForm" novalidate>
+    <form method="post" class="form" id="masterPackageForm" novalidate>
       {% csrf_token %}
 
-      {% if has_payments or fee_structure.locked %}
-        <div style="background:var(--color-primary-50, #eff6ff); border:1px solid var(--color-primary-200, #bfdbfe); border-radius:var(--radius-md); padding:var(--space-3) var(--space-4); margin-bottom:var(--space-4); display:flex; align-items:center; gap:var(--space-3);">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--color-primary, #2563eb)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="12" cy="12" r="10"></circle>
-            <line x1="12" y1="16" x2="12" y2="12"></line>
-            <line x1="12" y1="8" x2="12.01" y2="8"></line>
-          </svg>
-          <span style="font-size:var(--text-sm); color:var(--color-text);">
-            <strong>Safe Fee Adjustments:</strong> Payments and receipts already recorded against this structure remain completely preserved. Student balance dues will dynamically reflect the new amounts.
-          </span>
-        </div>
-      {% endif %}
-
-      <h2 class="card__title">Package Details</h2>
-      <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: var(--space-4);">
-        {% for field in form %}
-          <div class="field" style="margin-bottom:0;">
-            <label class="field__label" for="{{ field.id_for_label }}">{{ field.label }}</label>
-            {{ field }}
-            {% if field.errors %}
-              <ul class="field__errors">
-                {% for error in field.errors %}<li>{{ error }}</li>{% endfor %}
-              </ul>
-            {% endif %}
-          </div>
-        {% endfor %}
+      <div style="background:var(--color-primary-50, #eff6ff); border:1px solid var(--color-primary-200, #bfdbfe); border-radius:var(--radius-md); padding:var(--space-3) var(--space-4); margin-bottom:var(--space-4); display:flex; align-items:center; gap:var(--space-3);">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--color-primary, #2563eb)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"></circle>
+          <line x1="12" y1="16" x2="12" y2="12"></line>
+          <line x1="12" y1="8" x2="12.01" y2="8"></line>
+        </svg>
+        <span style="font-size:var(--text-sm); color:var(--color-text);">
+          <strong>Master Blueprint:</strong> This fee blueprint is class-agnostic. Once saved, you can deploy it to multiple classes at once for any term, and adjust specific amounts on individual classes as needed.
+        </span>
       </div>
 
-      <div style="display:flex; justify-content:space-between; align-items:flex-end; margin-top:var(--space-6); margin-bottom:var(--space-3); flex-wrap:wrap; gap:var(--space-3);">
+      <h2 class="card__title">Package Details</h2>
+      <div style="display:grid; grid-template-columns: 1fr; gap: var(--space-4); margin-bottom: var(--space-6);">
+        <div class="field" style="margin-bottom:0;">
+          <label class="field__label" for="{{ form.name.id_for_label }}">Package Name <span style="color:var(--color-danger, #dc2626);">*</span></label>
+          {{ form.name }}
+          {% if form.name.errors %}
+            <ul class="field__errors">
+              {% for error in form.name.errors %}<li>{{ error }}</li>{% endfor %}
+            </ul>
+          {% endif %}
+        </div>
+
+        <div class="field" style="margin-bottom:0;">
+          <label class="field__label" for="{{ form.description.id_for_label }}">Description / Scope (Optional)</label>
+          {{ form.description }}
+          {% if form.description.errors %}
+            <ul class="field__errors">
+              {% for error in form.description.errors %}<li>{{ error }}</li>{% endfor %}
+            </ul>
+          {% endif %}
+        </div>
+      </div>
+
+      <div style="display:flex; justify-content:space-between; align-items:flex-end; margin-bottom:var(--space-3); flex-wrap:wrap; gap:var(--space-3);">
         <div>
-          <h2 class="card__title" style="margin:0;">Itemized Breakdown</h2>
-          <p class="card__hint" style="margin-top:2px;">Individual components composing this term's fixed fee package.</p>
+          <h2 class="card__title" style="margin:0;">Itemized Fee Lines</h2>
+          <p class="card__hint" style="margin-top:2px;">Components that make up this fee blueprint.</p>
         </div>
         <!-- Quick add suggestions & Add Line Item button -->
         <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
@@ -63,12 +76,13 @@
           <button type="button" class="btn btn--secondary btn--sm" onclick="quickAddItem('Exam Fee')" style="padding:2px 8px; font-size:var(--text-xs);">+ Exam Fee</button>
           <button type="button" class="btn btn--secondary btn--sm" onclick="quickAddItem('Sports / Club')" style="padding:2px 8px; font-size:var(--text-xs);">+ Sports</button>
           <button type="button" class="btn btn--secondary btn--sm" onclick="quickAddItem('Uniform & Books')" style="padding:2px 8px; font-size:var(--text-xs);">+ Uniform</button>
+          <button type="button" class="btn btn--secondary btn--sm" onclick="quickAddItem('ICT / Computer Fee')" style="padding:2px 8px; font-size:var(--text-xs);">+ ICT</button>
           <button type="button" class="btn btn--primary btn--sm" onclick="addNewItemRow()" style="display:inline-flex; align-items:center; gap:4px; font-weight:600; padding:3px 10px;">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
               <line x1="12" y1="5" x2="12" y2="19"></line>
               <line x1="5" y1="12" x2="19" y2="12"></line>
             </svg>
-            Add Item
+            Add Line
           </button>
         </div>
       </div>
@@ -79,8 +93,8 @@
         <table class="table" id="itemsTable">
           <thead>
             <tr>
-              <th scope="col" style="width:50%;">Item Name</th>
-              <th scope="col" style="width:25%; text-align:right;">Amount (₦)</th>
+              <th scope="col" style="width:50%;">Fee Item Name</th>
+              <th scope="col" style="width:25%; text-align:right;">Default Amount (₦)</th>
               <th scope="col" style="width:15%; text-align:center;">Mandatory</th>
               {% if formset.can_delete %}
                 <th scope="col" style="width:10%; text-align:center;">Remove</th>
@@ -92,7 +106,7 @@
               <tr class="item-row">
                 <td>
                   {{ item_form.id }}
-                  <input type="text" name="{{ item_form.name.html_name }}" id="{{ item_form.name.auto_id }}" value="{{ item_form.name.value|default:'' }}" class="form-input item-name-input" placeholder="e.g. Tuition / Exam Fee / Lab Levy" style="width:100%;">
+                  <input type="text" name="{{ item_form.name.html_name }}" id="{{ item_form.name.auto_id }}" value="{{ item_form.name.value|default:'' }}" class="form-input item-name-input" placeholder="e.g. Tuition / Exam Fee / PTA" style="width:100%;">
                   {% if item_form.name.errors %}
                     <ul class="field__errors">
                       {% for error in item_form.name.errors %}<li>{{ error }}</li>{% endfor %}
@@ -108,7 +122,7 @@
                   {% endif %}
                 </td>
                 <td style="text-align:center; vertical-align:middle;">
-                  <input type="checkbox" name="{{ item_form.is_mandatory.html_name }}" id="{{ item_form.is_mandatory.auto_id }}" {% if item_form.is_mandatory.value or item_form.is_mandatory.value is None %}checked{% endif %} style="width:18px; height:18px; cursor:pointer;" title="Mandatory fee for all students">
+                  <input type="checkbox" name="{{ item_form.is_mandatory.html_name }}" id="{{ item_form.is_mandatory.auto_id }}" {% if item_form.is_mandatory.value or item_form.is_mandatory.value is None %}checked{% endif %} style="width:18px; height:18px; cursor:pointer;" title="Mandatory fee line">
                 </td>
                 {% if formset.can_delete %}
                   <td style="text-align:center; vertical-align:middle;">
@@ -121,7 +135,6 @@
         </table>
       </div>
 
-
       <!-- Add more items toolbar -->
       <div style="margin-top: var(--space-3); display: flex; justify-content: flex-start;">
         <button type="button" class="btn btn--secondary btn--sm" onclick="addNewItemRow()" style="display:inline-flex; align-items:center; gap:6px; font-weight:600;">
@@ -129,20 +142,20 @@
             <line x1="12" y1="5" x2="12" y2="19"></line>
             <line x1="5" y1="12" x2="19" y2="12"></line>
           </svg>
-          Add Another Line Item
+          Add Another Fee Item
         </button>
       </div>
 
       <!-- Live Total Package Preview Card -->
       <div style="background:var(--color-bg-subtle, #f8fafc); border:1px solid var(--color-border); border-radius:var(--radius-md); padding:var(--space-4); margin-top:var(--space-4); display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:var(--space-3);">
         <div>
-          <div style="font-size:var(--text-xs); text-transform:uppercase; color:var(--color-text-muted); font-weight:700; letter-spacing:0.5px;">Fixed Total Package Value</div>
+          <div style="font-size:var(--text-xs); text-transform:uppercase; color:var(--color-text-muted); font-weight:700; letter-spacing:0.5px;">Master Package Total Value</div>
           <div style="font-size:var(--text-2xl); font-weight:800; font-family:var(--font-mono); color:var(--color-primary-600, #2563eb);" id="livePackageTotal">
             ₦0.00
           </div>
         </div>
-        <div style="font-size:var(--text-xs); color:var(--color-text-muted); max-width:320px;">
-          Enrolled students in this class will automatically be billed this total package with full item breakdown tracking.
+        <div style="font-size:var(--text-xs); color:var(--color-text-muted); max-width:340px;">
+          When this master package is applied to classes, each target class will receive a fee structure initialized with these exact amounts and items.
         </div>
       </div>
 
@@ -154,18 +167,12 @@
 
       <div class="form-actions" style="margin-top:var(--space-6);">
         <button type="submit" class="btn btn--primary">
-          {% if fee_structure %}Save changes{% else %}Create fee structure{% endif %}
+          {% if package %}Save Master Package{% else %}Create Master Package{% endif %}
         </button>
-        {% if fee_structure %}
-          <a class="btn btn--secondary" href="{% url 'billing:fee_structure_detail' fee_structure.pk %}">Cancel</a>
-        {% else %}
-          <a class="btn btn--secondary" href="{% url 'billing:fee_structure_list' %}">Cancel</a>
-        {% endif %}
+        <a class="btn btn--secondary" href="{% url 'billing:package_list' %}">Cancel</a>
       </div>
     </form>
   </div>
-
-  {{ packages_json|default:"{}"|json_script:"master-packages-data" }}
 
   <script>
     function recalcPackageTotal() {
@@ -200,19 +207,18 @@
       tr.className = 'item-row';
       tr.innerHTML = `
         <td>
-          <input type="text" name="${prefix}-${formIdx}-name" id="id_${prefix}-${formIdx}-name" value="${initialName || ''}" class="form-input item-name-input" placeholder="e.g. Tuition / Exam Fee / Lab Levy" style="width:100%;">
+          <input type="text" name="${prefix}-${formIdx}-name" id="id_${prefix}-${formIdx}-name" value="${initialName || ''}" class="form-input item-name-input" placeholder="e.g. Tuition / Exam Fee / PTA" style="width:100%;">
         </td>
         <td style="text-align:right;">
           <input type="number" step="0.01" name="${prefix}-${formIdx}-amount" id="id_${prefix}-${formIdx}-amount" value="" class="form-input item-amount-input" placeholder="0.00" style="text-align:right; font-family:var(--font-mono); width:100%;" oninput="recalcPackageTotal()">
         </td>
         <td style="text-align:center; vertical-align:middle;">
-          <input type="checkbox" name="${prefix}-${formIdx}-is_mandatory" id="id_${prefix}-${formIdx}-is_mandatory" value="True" checked style="width:18px; height:18px; cursor:pointer;" title="Mandatory fee for all students">
+          <input type="checkbox" name="${prefix}-${formIdx}-is_mandatory" id="id_${prefix}-${formIdx}-is_mandatory" value="True" checked style="width:18px; height:18px; cursor:pointer;" title="Mandatory fee line">
         </td>
         <td style="text-align:center; vertical-align:middle;">
           <input type="checkbox" name="${prefix}-${formIdx}-DELETE" id="id_${prefix}-${formIdx}-DELETE" style="display:none;">
           <button type="button" class="btn btn--link" style="color:var(--color-danger, #dc2626); padding:0; font-size:14px;" onclick="removeDynamicRow(this)" title="Remove item">✕</button>
         </td>
-
       `;
       tbody.appendChild(tr);
 
@@ -260,82 +266,8 @@
         }
       }
       if (!filled) {
-        // If all existing slots are already filled, dynamically create a new row!
         addNewItemRow(name);
       }
-    }
-
-    var masterPackagesElem = document.getElementById('master-packages-data');
-    var masterPackages = (masterPackagesElem && masterPackagesElem.textContent) ? JSON.parse(masterPackagesElem.textContent) : {};
-
-    function handleTemplateSelect(select) {
-      var pkgId = select.value;
-      if (!pkgId || !masterPackages[pkgId]) return;
-      var pkg = masterPackages[pkgId];
-
-      var nameInput = document.getElementById('id_name');
-      var klassSelect = document.getElementById('id_klass');
-      var className = klassSelect && klassSelect.selectedIndex > 0 ? klassSelect.options[klassSelect.selectedIndex].text : '';
-
-      if (nameInput && (!nameInput.value.trim() || nameInput.dataset.autoFilled === 'true')) {
-        nameInput.value = pkg.name + (className ? ' (' + className + ')' : '');
-        nameInput.dataset.autoFilled = 'true';
-      }
-
-      var existingRows = document.querySelectorAll('.item-row');
-      var hasCustomData = false;
-      existingRows.forEach(function(row) {
-        var n = row.querySelector('.item-name-input');
-        var a = row.querySelector('.item-amount-input');
-        if ((n && n.value.trim()) || (a && parseFloat(a.value) > 0)) {
-          hasCustomData = true;
-        }
-      });
-
-      if (hasCustomData && !confirm('Populate items from "' + pkg.name + '"? This will add or replace existing fee line items.')) {
-        return;
-      }
-
-      // Mark all existing non-deleted rows as deleted or clear them
-      existingRows.forEach(function(row) {
-        var delCheckbox = row.querySelector('input[type="checkbox"][name$="-DELETE"]');
-        if (delCheckbox) {
-          delCheckbox.checked = true;
-          row.style.display = 'none';
-        }
-      });
-
-      // Now add rows for each item from master package
-      pkg.items.forEach(function(item) {
-        var prefix = getManagementFormPrefix();
-        var totalFormsInput = document.querySelector('input[name="' + prefix + '-TOTAL_FORMS"]');
-        var formIdx = parseInt(totalFormsInput ? totalFormsInput.value : '0', 10);
-
-        var tbody = document.getElementById('itemsTableBody') || document.querySelector('#itemsTable tbody');
-        var tr = document.createElement('tr');
-        tr.className = 'item-row';
-        tr.innerHTML = `
-          <td>
-            <input type="text" name="${prefix}-${formIdx}-name" id="id_${prefix}-${formIdx}-name" value="${item.name}" class="form-input item-name-input" style="width:100%;">
-          </td>
-          <td style="text-align:right;">
-            <input type="number" step="0.01" name="${prefix}-${formIdx}-amount" id="id_${prefix}-${formIdx}-amount" value="${item.amount}" class="form-input item-amount-input" style="text-align:right; font-family:var(--font-mono); width:100%;" oninput="recalcPackageTotal()">
-          </td>
-          <td style="text-align:center; vertical-align:middle;">
-            <input type="checkbox" name="${prefix}-${formIdx}-is_mandatory" id="id_${prefix}-${formIdx}-is_mandatory" value="True" ${item.is_mandatory ? 'checked' : ''} style="width:18px; height:18px; cursor:pointer;" title="Mandatory fee for all students">
-          </td>
-          <td style="text-align:center; vertical-align:middle;">
-            <input type="checkbox" name="${prefix}-${formIdx}-DELETE" id="id_${prefix}-${formIdx}-DELETE" style="display:none;">
-            <button type="button" class="btn btn--link" style="color:var(--color-danger, #dc2626); padding:0; font-size:14px;" onclick="removeDynamicRow(this)" title="Remove item">✕</button>
-          </td>
-        `;
-        tbody.appendChild(tr);
-        if (totalFormsInput) {
-          totalFormsInput.value = formIdx + 1;
-        }
-      });
-
-      recalcPackageTotal();
     }
 
     document.addEventListener('DOMContentLoaded', function() {
@@ -343,13 +275,6 @@
       document.querySelectorAll('input[type="checkbox"][name$="-DELETE"]').forEach(function(cb) {
         cb.addEventListener('change', recalcPackageTotal);
       });
-
-      var templateSelect = document.getElementById('id_template');
-      if (templateSelect) {
-        templateSelect.addEventListener('change', function() {
-          handleTemplateSelect(this);
-        });
-      }
     });
   </script>
 {% endblock %}

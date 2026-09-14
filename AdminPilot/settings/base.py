@@ -107,7 +107,15 @@ INSTALLED_APPS = LOCAL_APPS + DJANGO_APPS
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
-    "whitenoise.middleware.WhiteNoiseMiddleware",
+]
+
+try:
+    import whitenoise  # noqa: F401
+    MIDDLEWARE.append("whitenoise.middleware.WhiteNoiseMiddleware")
+except ImportError:
+    pass
+
+MIDDLEWARE.extend([
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -119,7 +127,7 @@ MIDDLEWARE = [
     # middleware that queries tenant-scoped tables.
     # docs/01_Architecture.md — highest-risk detail in the platform.
     "core.middleware.TenantContextMiddleware",
-]
+])
 
 ROOT_URLCONF = "AdminPilot.urls"
 

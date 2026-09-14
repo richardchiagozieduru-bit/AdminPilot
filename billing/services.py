@@ -33,6 +33,8 @@ from .models import (
     CreditTransaction,
     FeeStructure,
     FeeStructureItem,
+    MasterFeePackage,
+    MasterFeePackageItem,
     Payment,
     PaymentItemAllocation,
     PaymentStatus,
@@ -45,15 +47,272 @@ logger = logging.getLogger(__name__)
 
 
 # --------------------------------------------------------------------------- #
+# Master Fee Packages
+# --------------------------------------------------------------------------- #
+@transaction.atomic
+def create_master_package(
+    *,
+    institution_id,
+    name,
+    description="",
+    items,
+    actor,
+    ip_address=None,
+):
+    """Create a MasterFeePackage blueprint and its item lines.
+
+    `items` is a list of dicts:
+      [{"name": "Tuition", "amount": Decimal("50000"), "is_mandatory": True}, ...]
+    """
+    total = sum(Decimal(str(item["amount"])) for item in items)
+
+    package = MasterFeePackage.unscoped.create(
+        institution_id=institution_id,
+        name=name,
+        description=description,
+        total_amount=total,
+    )
+
+    for item in items:
+        MasterFeePackageItem.unscoped.create(
+            institution_id=institution_id,
+            package=package,
+            name=item["name"],
+            amount=Decimal(str(item["amount"])),
+            is_mandatory=item.get("is_mandatory", True),
+        )
+
+    write_audit_log(
+        institution_id=institution_id,
+        actor=actor,
+        action="fee_package.created",
+        summary=f"Created master fee package '{package.name}' (Total: ₦{total})",
+        target_type="MasterFeePackage",
+        target_id=package.pk,
+        detail={"name": name, "items": [{"name": i["name"], "amount": str(i["amount"])} for i in items]},
+        ip_address=ip_address,
+    )
+    return package
+
+
+@transaction.atomic
+def update_master_package(
+    *,
+    package,
+    name,
+    description="",
+    items,
+    actor,
+    ip_address=None,
+):
+    """Update a MasterFeePackage blueprint and rewrite its item lines."""
+    package.name = name
+    package.description = description
+    total = sum(Decimal(str(item["amount"])) for item in items)
+    package.total_amount = total
+    package.save(update_fields=["name", "description", "total_amount", "updated_at"])
+
+    package.items.all().delete()
+    for item in items:
+        MasterFeePackageItem.unscoped.create(
+            institution_id=package.institution_id,
+            package=package,
+            name=item["name"],
+            amount=Decimal(str(item["amount"])),
+            is_mandatory=item.get("is_mandatory", True),
+        )
+
+    write_audit_log(
+        institution_id=package.institution_id,
+        actor=actor,
+        action="fee_package.updated",
+        summary=f"Updated master fee package '{package.name}' (Total: ₦{total})",
+        target_type="MasterFeePackage",
+        target_id=package.pk,
+        detail={"name": name, "items": [{"name": i["name"], "amount": str(i["amount"])} for i in items]},
+        ip_address=ip_address,
+    )
+    return package
+
+
+@transaction.atomic
+def apply_package_to_classes(
+    *,
+    institution_id,
+    package,
+    class_ids,
+    session,
+    term,
+    actor,
+    ip_address=None,
+):
+    """Apply a MasterFeePackage across multiple classes for a session/term.
+
+    For each class:
+      - Creates (or updates if unlocked) a FeeStructure for that class.
+      - Populates items matching the master package.
+      - Automatically enrolls & creates StudentFeeAssignment for all active students.
+    """
+    from academic.models import Class
+
+    classes = Class.objects.filter(institution_id=institution_id, pk__in=class_ids)
+    created_structures = []
+    items_data = [
+        {"name": item.name, "amount": item.amount, "is_mandatory": item.is_mandatory}
+        for item in package.items.all()
+    ]
+
+    for klass in classes:
+        existing = FeeStructure.unscoped.filter(
+            institution_id=institution_id,
+            klass=klass,
+            session=session,
+            term=term,
+        ).first()
+
+        if existing:
+            if existing.locked:
+                if not existing.template_id:
+                    existing.template = package
+                    existing.save(update_fields=["template"])
+                created_structures.append(existing)
+            else:
+                existing.name = f"{package.name} - {klass.name}"
+                existing.template = package
+                existing.total_amount = package.total_amount
+                existing.save(update_fields=["name", "template", "total_amount"])
+                existing.items.all().delete()
+                for it in items_data:
+                    FeeStructureItem.unscoped.create(
+                        institution_id=institution_id,
+                        fee_structure=existing,
+                        name=it["name"],
+                        amount=it["amount"],
+                        is_mandatory=it["is_mandatory"],
+                    )
+                for assignment in existing.assignments.all():
+                    sync_student_fee_items(assignment)
+                sync_fee_structure_assignments(fee_structure=existing, actor=actor, ip_address=ip_address)
+                created_structures.append(existing)
+        else:
+            struct = create_fee_structure(
+                institution_id=institution_id,
+                name=f"{package.name} - {klass.name}",
+                klass=klass,
+                session=session,
+                term=term,
+                items=items_data,
+                actor=actor,
+                ip_address=ip_address,
+            )
+            struct.template = package
+            struct.save(update_fields=["template"])
+            created_structures.append(struct)
+
+    write_audit_log(
+        institution_id=institution_id,
+        actor=actor,
+        action="fee_package.applied",
+        summary=f"Applied master fee package '{package.name}' to {len(created_structures)} classes",
+        target_type="MasterFeePackage",
+        target_id=package.pk,
+        detail={
+            "package_id": package.pk,
+            "classes": [k.name for k in classes],
+            "session": session.name,
+            "term": term.name,
+        },
+        ip_address=ip_address,
+    )
+    return created_structures
+
+
+@transaction.atomic
+def convert_structure_to_package(
+    *,
+    structure,
+    package_name,
+    description="",
+    actor,
+    ip_address=None,
+):
+    """Convert an existing class FeeStructure into a reusable MasterFeePackage."""
+    items_data = [
+        {"name": item.name, "amount": item.amount, "is_mandatory": item.is_mandatory}
+        for item in structure.items.all()
+    ]
+    package = create_master_package(
+        institution_id=structure.institution_id,
+        name=package_name,
+        description=description or f"Converted from {structure.name} ({structure.klass.name})",
+        items=items_data,
+        actor=actor,
+        ip_address=ip_address,
+    )
+    if not structure.template_id:
+        structure.template = package
+        structure.save(update_fields=["template"])
+
+    return package
+
+
+# --------------------------------------------------------------------------- #
 # Helpers
 # --------------------------------------------------------------------------- #
-def _populate_student_fee_items(assignment):
-    """Populate default StudentFeeItem rows from the parent FeeStructure items."""
-    for item in assignment.fee_structure.items.all():
-        if not StudentFeeItem.unscoped.filter(
-            assignment=assignment,
-            fee_structure_item=item,
-        ).exists():
+def sync_student_fee_items(assignment):
+    """Synchronize a StudentFeeAssignment's item lines with its parent FeeStructure.
+
+    If the assignment has not been individually customized (adjustment_reason is blank):
+    - Updates amount_due to match fee_structure.total_amount if different.
+    - Synchronizes StudentFeeItem records:
+        * Creates any new fee structure items that don't yet exist for this student.
+        * Updates existing standard items (name, amount, is_mandatory, original_amount).
+        * Removes or zeroes out student items whose fee structure item no longer exists.
+    If the assignment HAS been customized (has adjustment_reason):
+    - Adds any newly added fee structure items as standard line items without modifying
+      existing custom overrides or discounts.
+    """
+    structure = assignment.fee_structure
+    is_unadjusted = not bool(assignment.adjustment_reason)
+
+    if is_unadjusted and assignment.amount_due != structure.total_amount:
+        assignment.amount_due = structure.total_amount
+        assignment.save(update_fields=["amount_due"])
+
+    existing_student_items = list(assignment.items.all())
+    by_fsi_id = {si.fee_structure_item_id: si for si in existing_student_items if si.fee_structure_item_id}
+    by_name = {si.name.strip().lower(): si for si in existing_student_items}
+
+    structure_items = list(structure.items.all())
+    current_fsi_ids = {item.pk for item in structure_items}
+    structure_names = {item.name.strip().lower() for item in structure_items}
+
+    for item in structure_items:
+        s_item = by_fsi_id.get(item.pk) or by_name.get(item.name.strip().lower())
+        if s_item:
+            needs_save = False
+            if not s_item.fee_structure_item_id:
+                s_item.fee_structure_item = item
+                needs_save = True
+            if is_unadjusted or s_item.adjustment_type == "standard":
+                if s_item.name != item.name:
+                    s_item.name = item.name
+                    needs_save = True
+                if s_item.amount != item.amount:
+                    s_item.amount = item.amount
+                    needs_save = True
+                if s_item.original_amount != item.amount:
+                    s_item.original_amount = item.amount
+                    needs_save = True
+                if s_item.is_mandatory != item.is_mandatory:
+                    s_item.is_mandatory = item.is_mandatory
+                    needs_save = True
+                if not s_item.is_included:
+                    s_item.is_included = True
+                    needs_save = True
+            if needs_save:
+                s_item.save()
+        else:
             StudentFeeItem.unscoped.create(
                 institution_id=assignment.institution_id,
                 assignment=assignment,
@@ -66,6 +325,24 @@ def _populate_student_fee_items(assignment):
                 adjustment_type="standard",
                 discount_amount=Decimal("0.00"),
             )
+
+    if is_unadjusted:
+        for si in existing_student_items:
+            is_orphaned_id = si.fee_structure_item_id and si.fee_structure_item_id not in current_fsi_ids
+            is_orphaned_name = (not si.fee_structure_item_id) and (si.name.strip().lower() not in structure_names)
+            if is_orphaned_id or is_orphaned_name:
+                if si.allocations.exists():
+                    if si.amount != Decimal("0.00") or si.is_included:
+                        si.amount = Decimal("0.00")
+                        si.is_included = False
+                        si.save(update_fields=["amount", "is_included"])
+                else:
+                    si.delete()
+
+
+def _populate_student_fee_items(assignment):
+    """Populate default StudentFeeItem rows from the parent FeeStructure items."""
+    sync_student_fee_items(assignment)
 
 
 # --------------------------------------------------------------------------- #
@@ -338,25 +615,9 @@ def update_fee_structure(
     fee_structure.total_amount = new_total
     fee_structure.save(update_fields=["name", "total_amount"])
 
-    # Update unadjusted assignments — those whose amount_due still equals the
-    # old total and have never been individually adjusted.
-    if old_total != new_total:
-        unadjusted_assignments = StudentFeeAssignment.unscoped.filter(
-            fee_structure=fee_structure,
-            amount_due=old_total,
-            adjustment_reason="",
-        )
-        for assignment in unadjusted_assignments:
-            assignment.amount_due = new_total
-            assignment.save(update_fields=["amount_due"])
-            # Update default StudentFeeItems if any
-            for item in fee_structure.items.all():
-                s_item = assignment.items.filter(fee_structure_item=item).first()
-                if s_item and s_item.adjustment_type == "standard":
-                    s_item.amount = item.amount
-                    s_item.original_amount = item.amount
-                    s_item.is_mandatory = item.is_mandatory
-                    s_item.save(update_fields=["amount", "original_amount", "is_mandatory"])
+    # Sync all student fee assignments under this fee structure
+    for assignment in fee_structure.assignments.all():
+        sync_student_fee_items(assignment)
 
     write_audit_log(
         institution_id=fee_structure.institution_id,
@@ -719,7 +980,21 @@ def record_payment(
             fee_item_id = alloc.get("fee_item_id")
             alloc_amt = Decimal(str(alloc.get("amount", "0.00")))
             if alloc_amt > 0 and fee_item_id:
-                if FeeStructureItem.objects.filter(pk=fee_item_id).exists():
+                s_item = StudentFeeItem.objects.filter(
+                    pk=fee_item_id, assignment=assignment, fee_structure_item__isnull=True
+                ).first()
+                if s_item:
+                    PaymentItemAllocation.unscoped.create(
+                        institution_id=institution.pk,
+                        payment=payment,
+                        student_fee_item=s_item,
+                        amount=alloc_amt,
+                    )
+                    recorded_allocations.append({
+                        "student_fee_item_id": s_item.pk,
+                        "amount": str(alloc_amt),
+                    })
+                elif FeeStructureItem.objects.filter(pk=fee_item_id, fee_structure=assignment.fee_structure).exists():
                     PaymentItemAllocation.unscoped.create(
                         institution_id=institution.pk,
                         payment=payment,
@@ -730,9 +1005,20 @@ def record_payment(
                         "fee_item_id": fee_item_id,
                         "amount": str(alloc_amt),
                     })
+                elif StudentFeeItem.objects.filter(pk=fee_item_id, assignment=assignment).exists():
+                    PaymentItemAllocation.unscoped.create(
+                        institution_id=institution.pk,
+                        payment=payment,
+                        student_fee_item_id=fee_item_id,
+                        amount=alloc_amt,
+                    )
+                    recorded_allocations.append({
+                        "student_fee_item_id": fee_item_id,
+                        "amount": str(alloc_amt),
+                    })
     else:
         # Fallback automatic priority waterfall allocation
-        breakdown = assignment.get_item_breakdown()
+        breakdown = assignment.get_item_breakdown(exclude_payment_id=payment.pk)
         remaining_to_allocate = actual_payment_amount if actual_payment_amount > 0 else credit_applied
         for item_data in breakdown:
             if remaining_to_allocate <= 0:
@@ -740,16 +1026,39 @@ def record_payment(
             needed = item_data["remaining"]
             if needed > 0:
                 alloc_amt = min(needed, remaining_to_allocate)
-                fee_item_id = item_data["fee_item_id"]
-                if FeeStructureItem.objects.filter(pk=fee_item_id).exists():
+                raw_item = item_data.get("fee_item")
+                if isinstance(raw_item, StudentFeeItem):
+                    if raw_item.fee_structure_item_id:
+                        PaymentItemAllocation.unscoped.create(
+                            institution_id=institution.pk,
+                            payment=payment,
+                            fee_item_id=raw_item.fee_structure_item_id,
+                            amount=alloc_amt,
+                        )
+                        recorded_allocations.append({
+                            "fee_item_id": raw_item.fee_structure_item_id,
+                            "amount": str(alloc_amt),
+                        })
+                    else:
+                        PaymentItemAllocation.unscoped.create(
+                            institution_id=institution.pk,
+                            payment=payment,
+                            student_fee_item=raw_item,
+                            amount=alloc_amt,
+                        )
+                        recorded_allocations.append({
+                            "student_fee_item_id": raw_item.pk,
+                            "amount": str(alloc_amt),
+                        })
+                elif isinstance(raw_item, FeeStructureItem):
                     PaymentItemAllocation.unscoped.create(
                         institution_id=institution.pk,
                         payment=payment,
-                        fee_item_id=fee_item_id,
+                        fee_item=raw_item,
                         amount=alloc_amt,
                     )
                     recorded_allocations.append({
-                        "fee_item_id": fee_item_id,
+                        "fee_item_id": raw_item.pk,
                         "amount": str(alloc_amt),
                     })
                 remaining_to_allocate -= alloc_amt

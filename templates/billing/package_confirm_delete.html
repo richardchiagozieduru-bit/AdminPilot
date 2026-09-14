@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+
+{% block title %}Delete {{ package.name }} · AdminPilot{% endblock %}
+
+{% block content %}
+  <div class="page-header">
+    <div>
+      <h1>Delete Master Fee Package</h1>
+      <p class="page-header__sub">
+        {{ package.name }}
+      </p>
+    </div>
+  </div>
+
+  <div class="card" style="max-width: 650px; border: 1px solid var(--color-border);">
+    <h2 class="card__title" style="color: var(--color-danger, #dc2626);">
+      {% if applied_count > 0 %}
+        Archive Master Fee Package?
+      {% else %}
+        Are you sure you want to delete this master package?
+      {% endif %}
+    </h2>
+    
+    {% if applied_count > 0 %}
+      <p style="margin-top: var(--space-2); color: var(--color-text);">
+        <strong>{{ package.name }}</strong> is currently in use by <strong>{{ applied_count }} class fee structure(s)</strong>.
+      </p>
+      <div class="alert alert--info" style="margin-bottom: var(--space-4); font-size: var(--text-sm); background: var(--color-bg-subtle); border: 1px solid var(--color-border); padding: var(--space-3);">
+        <strong>Historical Protection:</strong> To ensure billing and payment integrity, existing class fee structures, student bills, and receipts will remain completely intact. This package will simply be marked inactive so it will no longer appear for future class assignments.
+      </div>
+    {% else %}
+      <p style="margin-top: var(--space-2); color: var(--color-text);">
+        Deleting <strong>{{ package.name }}</strong> will permanently remove this blueprint and its <strong>{{ items|length }} itemized fee lines</strong>. It has not been applied to any classes yet.
+      </p>
+    {% endif %}
+
+    <div style="background: var(--color-bg-subtle, #f8fafc); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: var(--space-4); margin: var(--space-4) 0;">
+      <div style="font-weight: 700; margin-bottom: var(--space-2); font-size: var(--text-sm);">Blueprint Items:</div>
+      <table class="table" style="margin:0;">
+        <thead>
+          <tr>
+            <th>Item</th>
+            <th style="text-align:center;">Type</th>
+            <th style="text-align:right;">Amount (₦)</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for item in items %}
+            <tr>
+              <td>{{ item.name }}</td>
+              <td style="text-align:center;">
+                {% if item.is_mandatory %}
+                  <span class="badge badge--muted" style="font-size:11px;">Mandatory</span>
+                {% else %}
+                  <span class="badge badge--info" style="font-size:11px;">Optional</span>
+                {% endif %}
+              </td>
+              <td style="text-align:right; font-family: var(--font-mono);">{{ item.amount }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+        <tfoot>
+          <tr style="font-weight:700;">
+            <td colspan="2">Total Value:</td>
+            <td style="text-align:right; font-family: var(--font-mono); color:var(--color-primary, #2563eb);">{{ package.total_amount }}</td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+
+    <form method="post">
+      {% csrf_token %}
+      <div class="form-actions" style="margin-top: var(--space-4);">
+        <button type="submit" class="btn btn--danger" style="background:var(--color-danger, #dc2626); color:#fff; border-color:var(--color-danger, #dc2626);">
+          {% if applied_count > 0 %}
+            Archive Master Package
+          {% else %}
+            Yes, Delete Master Package
+          {% endif %}
+        </button>
+        <a class="btn btn--secondary" href="{% url 'billing:package_list' %}">Cancel</a>
+      </div>
+    </form>
+  </div>
+{% endblock %}
