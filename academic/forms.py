@@ -176,6 +176,9 @@ class ClassForm(InstitutionScopedFormMixin, AccessibleModelForm):
             institution_id=self.institution_id,
             is_active=True,
         ).order_by("full_name")
+        self.fields["form_teacher"].label_from_instance = (
+            lambda user: user.full_name or user.email
+        )
         self.fields["form_teacher"].required = False
 
     def clean_name(self):
