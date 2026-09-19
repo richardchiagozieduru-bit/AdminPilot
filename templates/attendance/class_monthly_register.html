@@ -1,0 +1,575 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}{{ klass.name }} — Attendance Register{% endblock %}
+
+{% block content %}
+<style>
+  /* ─── Header ────────────────────────────────── */
+  .reg-header {
+    display: flex; align-items: center; justify-content: space-between;
+    flex-wrap: wrap; gap: 1rem; margin-bottom: 1.5rem;
+  }
+  .reg-header__back {
+    color: var(--text-secondary); text-decoration: none; font-size: 0.85rem;
+    display: inline-flex; align-items: center; gap: 0.3rem;
+  }
+  .reg-header__back:hover { color: var(--text-primary); }
+  .reg-header__title { font-size: 1.5rem; font-weight: 700; }
+  .reg-header__sub { font-size: 0.85rem; color: var(--text-secondary); margin-top: 0.15rem; }
+
+  /* ─── Month nav ─────────────────────────────── */
+  .reg-month-nav {
+    display: flex; align-items: center; gap: 0.75rem;
+    background: var(--card-bg, #fff); border: 1px solid var(--border-color, #e5e7eb);
+    border-radius: 10px; padding: 0.5rem 1rem;
+  }
+  .reg-month-nav a {
+    color: var(--text-secondary); text-decoration: none; font-size: 1.1rem;
+    padding: 0.25rem 0.5rem; border-radius: 6px;
+  }
+  .reg-month-nav a:hover { background: var(--hover-bg, #f3f4f6); }
+  .reg-month-nav__label { font-weight: 700; font-size: 1rem; min-width: 150px; text-align: center; }
+
+  /* ─── Action bar ────────────────────────────── */
+  .reg-actions {
+    display: flex; gap: 0.75rem; flex-wrap: wrap;
+    margin-bottom: 1.5rem; align-items: center;
+  }
+  .reg-actions .btn { font-size: 0.85rem; }
+
+  .btn--mark-all {
+    background: linear-gradient(135deg, #16a34a, #15803d);
+    color: #fff; border: none; padding: 0.6rem 1.25rem;
+    border-radius: 10px; font-weight: 700; cursor: pointer;
+    display: inline-flex; align-items: center; gap: 0.4rem;
+    transition: opacity 0.2s;
+  }
+  .btn--mark-all:hover { opacity: 0.9; }
+
+  .btn--save {
+    background: linear-gradient(135deg, #2563eb, #1d4ed8);
+    color: #fff; border: none; padding: 0.6rem 1.25rem;
+    border-radius: 10px; font-weight: 700; cursor: pointer;
+    display: inline-flex; align-items: center; gap: 0.4rem;
+    transition: opacity 0.2s;
+  }
+  .btn--save:hover { opacity: 0.9; }
+
+  .btn--export {
+    background: var(--card-bg, #fff); border: 1px solid var(--border-color, #e5e7eb);
+    padding: 0.6rem 1.25rem; border-radius: 10px; font-weight: 600;
+    cursor: pointer; display: inline-flex; align-items: center; gap: 0.4rem;
+    color: var(--text-primary); text-decoration: none;
+    transition: border-color 0.2s;
+  }
+  .btn--export:hover { border-color: #2563eb; }
+
+  /* ─── Register table ────────────────────────── */
+  .reg-wrap {
+    overflow-x: auto; border: 1px solid var(--border-color, #e5e7eb);
+    border-radius: 12px; background: var(--card-bg, #fff);
+  }
+  .reg-table {
+    width: 100%; border-collapse: collapse; font-size: 0.8rem;
+    white-space: nowrap;
+  }
+  .reg-table th, .reg-table td {
+    padding: 0.5rem 0.6rem; text-align: center;
+    border-bottom: 1px solid var(--border-color, #e5e7eb);
+  }
+  .reg-table thead th {
+    background: var(--table-header-bg, #f9fafb);
+    font-weight: 700; font-size: 0.7rem;
+    text-transform: uppercase; letter-spacing: 0.04em;
+    position: sticky; top: 0; z-index: 2;
+  }
+
+  /* Sticky student column */
+  .reg-table .sticky-col {
+    position: sticky; left: 0; z-index: 3;
+    background: var(--card-bg, #fff);
+    text-align: left; min-width: 180px;
+    border-right: 2px solid var(--border-color, #e5e7eb);
+  }
+  .reg-table thead .sticky-col {
+    background: var(--table-header-bg, #f9fafb);
+    z-index: 4;
+  }
+
+  /* Today's column highlight */
+  .reg-table .col-today {
+    background: rgba(37, 99, 235, 0.06);
+    border-left: 2px solid #2563eb;
+    border-right: 2px solid #2563eb;
+  }
+  .reg-table thead .col-today {
+    background: rgba(37, 99, 235, 0.12);
+  }
+
+  /* Totals columns */
+  .reg-table .col-total {
+    background: var(--table-header-bg, #f9fafb);
+    font-weight: 600;
+  }
+
+  /* ─── Status cells (the checkboxes) ─────────── */
+  .status-cell {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 32px; height: 32px; border-radius: 8px;
+    font-weight: 800; font-size: 0.85rem;
+    cursor: pointer; user-select: none;
+    transition: transform 0.15s, box-shadow 0.15s;
+    border: 2px solid transparent;
+  }
+  .status-cell:hover { transform: scale(1.15); }
+  .status-cell--present { background: #dcfce7; color: #166534; border-color: #86efac; }
+  .status-cell--absent  { background: #fef2f2; color: #991b1b; border-color: #fca5a5; }
+  .status-cell--late    { background: #fefce8; color: #854d0e; border-color: #fde047; }
+  .status-cell--excused { background: #dbeafe; color: #1e40af; border-color: #93c5fd; }
+  .status-cell--empty   {
+    background: var(--hover-bg, #f3f4f6); color: var(--text-secondary);
+    border-color: var(--border-color, #e5e7eb);
+  }
+
+  /* Rate badge */
+  .rate-badge {
+    display: inline-block; padding: 0.2rem 0.5rem;
+    border-radius: 99px; font-size: 0.75rem; font-weight: 700;
+  }
+  .rate-badge--high { background: #dcfce7; color: #166534; }
+  .rate-badge--mid  { background: #fefce8; color: #854d0e; }
+  .rate-badge--low  { background: #fef2f2; color: #991b1b; }
+
+  /* Totals row */
+  .reg-table tfoot td { font-weight: 700; background: var(--table-header-bg, #f9fafb); }
+
+  /* ─── Direct P / A / L Segmented Buttons ───────── */
+  .status-btn-group {
+    display: inline-flex;
+    align-items: center;
+    border-radius: 8px;
+    background: var(--card-bg, #fff);
+    padding: 2px;
+    gap: 3px;
+    border: 1px solid var(--border-color, #cbd5e1);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+    user-select: none;
+  }
+  .s-btn {
+    width: 25px; height: 25px;
+    border: none; border-radius: 6px;
+    font-size: 0.72rem; font-weight: 800;
+    cursor: pointer; background: transparent;
+    color: var(--text-secondary, #64748b);
+    transition: all 0.15s ease;
+    padding: 0;
+    display: inline-flex; align-items: center; justify-content: center;
+  }
+  .s-btn:hover {
+    background: var(--hover-bg, #f1f5f9);
+    color: var(--text-primary, #0f172a);
+    transform: scale(1.1);
+  }
+  .s-btn--p.is-active {
+    background: #16a34a !important; color: #fff !important; font-weight: 900;
+    box-shadow: 0 1px 4px rgba(22, 163, 74, 0.4);
+  }
+  .s-btn--a.is-active {
+    background: #dc2626 !important; color: #fff !important; font-weight: 900;
+    box-shadow: 0 1px 4px rgba(220, 38, 38, 0.4);
+  }
+  .s-btn--l.is-active {
+    background: #d97706 !important; color: #fff !important; font-weight: 900;
+    box-shadow: 0 1px 4px rgba(217, 119, 6, 0.4);
+  }
+  .s-btn--note {
+    font-size: 0.7rem; opacity: 0.45;
+  }
+  .s-btn--note:hover { opacity: 1; transform: scale(1.15); }
+  .s-btn--note.has-remark {
+    opacity: 1; background: #e0e7ff; color: #4338ca; border-radius: 4px;
+  }
+
+  /* ─── Pagination ────────────────────────────── */
+  .reg-pagination {
+    display: flex; justify-content: space-between; align-items: center;
+    flex-wrap: wrap; gap: 1rem; margin-top: 1.25rem; padding: 0.75rem 1rem;
+    background: var(--card-bg, #fff); border: 1px solid var(--border-color, #e5e7eb);
+    border-radius: 12px;
+  }
+
+  /* ─── Mobile toggle ─────────────────────────── */
+  .reg-mobile-toggle {
+    display: none; margin-bottom: 1rem;
+  }
+  @media (max-width: 768px) {
+    .reg-mobile-toggle { display: block; }
+    .reg-table .hide-mobile { display: none; }
+    .reg-table.show-full .hide-mobile { display: table-cell; }
+  }
+
+  /* ─── Student name cell ─────────────────────── */
+  .student-info { display: flex; align-items: center; gap: 0.6rem; }
+  .student-avatar {
+    width: 28px; height: 28px; border-radius: 50%;
+    background: #e0e7ff; color: #4338ca;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 700; font-size: 0.65rem; flex-shrink: 0;
+  }
+  .student-name { font-weight: 600; font-size: 0.82rem; }
+  .student-adm { font-size: 0.7rem; color: var(--text-secondary); }
+
+  /* ─── Remark modal ──────────────────────────── */
+  .remark-modal {
+    display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.4); z-index: 999;
+    align-items: center; justify-content: center;
+  }
+  .remark-modal.active { display: flex; }
+  .remark-modal__box {
+    background: var(--card-bg, #fff); border-radius: 16px;
+    padding: 1.5rem; width: 90%; max-width: 400px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.15);
+  }
+  .remark-modal__title { font-weight: 700; font-size: 1rem; margin-bottom: 1rem; }
+  .remark-modal__input {
+    width: 100%; padding: 0.6rem 0.75rem; border: 1px solid var(--border-color, #e5e7eb);
+    border-radius: 8px; font-size: 0.85rem; margin-bottom: 1rem;
+  }
+  .remark-modal__actions { display: flex; gap: 0.75rem; justify-content: flex-end; }
+</style>
+
+<!-- Breadcrumb & Header -->
+<a class="reg-header__back" href="{% url 'attendance:dashboard' %}">← Back to Attendance</a>
+
+<div class="reg-header">
+  <div>
+    <div class="reg-header__title">{{ klass.name }} — Attendance Register</div>
+    <div class="reg-header__sub">
+      👤 Form Teacher: {{ klass.form_teacher_name }}
+      {% if current_session %} · {{ current_session.name }}{% endif %}
+      {% if current_term %} · {{ current_term.name }}{% endif %}
+    </div>
+  </div>
+
+  <div class="reg-month-nav">
+    <a href="?year={{ prev_year }}&month={{ prev_month }}" title="Previous month">◀</a>
+    <span class="reg-month-nav__label">{{ month_name }}</span>
+    <a href="?year={{ next_year }}&month={{ next_month }}" title="Next month">▶</a>
+  </div>
+</div>
+
+<!-- Action Bar -->
+<div class="reg-actions" style="display:flex; gap:0.75rem; align-items:center; flex-wrap:wrap; margin-bottom:1.5rem;">
+  {% if can_manage %}
+    <div style="display:inline-flex; align-items:center; gap:0.5rem; background:var(--card-bg, #fff); padding:0.45rem 0.85rem; border-radius:10px; border:1px solid var(--border-color, #e5e7eb);">
+      <span style="font-weight:700; font-size:0.8rem; color:var(--text-secondary);">Roll Call For:</span>
+      <select id="activeDaySelect" onchange="changeActiveDate(this.value)" style="border:none; font-weight:700; font-size:0.85rem; background:transparent; color:#2563eb; cursor:pointer;">
+        {% for d in school_days %}
+          <option value="{{ d|date:'Y-m-d' }}" {% if d == active_date %}selected{% endif %}>
+            {{ d|date:"D, M d" }}{% if d == today %} (Today){% elif today.weekday >= 5 and d == current_school_day %} (Latest School Day){% endif %}
+          </option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <form method="post" action="{% url 'attendance:mark_all_present' class_id=klass.pk %}" style="display:inline;">
+      {% csrf_token %}
+      <input type="hidden" name="date" value="{{ active_date|date:'Y-m-d' }}">
+      <input type="hidden" name="page" value="{{ page_obj.number }}">
+      <button type="submit" class="btn--mark-all" onclick="return confirm('Mark ALL students present for {{ active_date|date:"D, M d" }}?')">
+        ⚡ Mark All Present
+      </button>
+    </form>
+
+    <form method="post" action="{% url 'attendance:unmark_all' class_id=klass.pk %}" style="display:inline;">
+      {% csrf_token %}
+      <input type="hidden" name="date" value="{{ active_date|date:'Y-m-d' }}">
+      <input type="hidden" name="page" value="{{ page_obj.number }}">
+      <button type="submit" class="btn--export" style="color:#dc2626; border-color:#fca5a5;" onclick="return confirm('Reset / unmark all attendance records for {{ active_date|date:"D, M d" }}?')">
+        ✕ Unmark All
+      </button>
+    </form>
+
+    <button type="button" class="btn--save" id="saveRegisterBtn" onclick="saveRegister()">
+      💾 Save Changes
+    </button>
+  {% endif %}
+
+  <a href="{% url 'attendance:export_csv' class_id=klass.pk %}?year={{ year }}&month={{ month }}" class="btn--export">
+    📥 Download CSV
+  </a>
+</div>
+
+<!-- Mobile toggle -->
+<div class="reg-mobile-toggle">
+  <button type="button" class="btn--export" onclick="document.querySelector('.reg-table').classList.toggle('show-full')">
+    📅 Toggle Full Month / Week View
+  </button>
+</div>
+
+<!-- The Register Table -->
+<form id="attendanceForm" method="post" action="{% url 'attendance:save_daily' class_id=klass.pk %}">
+  {% csrf_token %}
+  <input type="hidden" name="date" value="{{ active_date|date:'Y-m-d' }}">
+  <input type="hidden" name="page" value="{{ page_obj.number }}">
+
+  <div class="reg-wrap">
+    <table class="reg-table" id="registerTable">
+      <thead>
+        <tr>
+          <th class="sticky-col">#  Student</th>
+          {% for d in school_days %}
+            <th class="{% if d == active_date %}col-today{% endif %}{% if d.weekday > 0 and d != active_date and d != today %} hide-mobile{% endif %}"
+                data-date="{{ d|date:'Y-m-d' }}"
+                style="cursor:pointer;{% if d == active_date %} min-width: 140px;{% endif %}"
+                title="Click to take/edit roll call for {{ d|date:'D, M d' }}"
+                onclick="changeActiveDate('{{ d|date:"Y-m-d" }}')">
+              {{ d|date:"D" }}<br>{{ d|date:"d" }}
+              {% if d == active_date %}
+                <br><span style="font-size:0.6rem;color:#2563eb;font-weight:800;">ACTIVE</span>
+              {% elif d == today %}
+                <br><span style="font-size:0.6rem;color:#16a34a;font-weight:800;">TODAY</span>
+              {% endif %}
+            </th>
+          {% endfor %}
+          <th class="col-total">P</th>
+          <th class="col-total">A</th>
+          <th class="col-total">L</th>
+          <th class="col-total">%</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in student_rows %}
+        <tr data-student-id="{{ row.student.pk }}">
+          <td class="sticky-col">
+            <div class="student-info">
+              <div class="student-avatar">{{ row.student.first_name|slice:":1" }}{{ row.student.last_name|slice:":1" }}</div>
+              <div>
+                <div class="student-name">{{ row.student.full_name }}</div>
+                <div class="student-adm">{{ row.student.admission_number }}</div>
+              </div>
+            </div>
+          </td>
+          {% for cell in row.cells %}
+            <td class="{% if cell.is_active_day %}col-today{% endif %}{% if cell.date.weekday > 0 and not cell.is_active_day and not cell.is_today %} hide-mobile{% endif %}"
+                data-date="{{ cell.date_str }}" data-student="{{ row.student.pk }}">
+              {% if cell.is_active_day and can_manage %}
+                {# Active editable cell for active date: Direct 1-click P / A / L buttons #}
+                <input type="hidden" name="student_{{ row.student.pk }}" id="status_{{ row.student.pk }}"
+                       value="{{ cell.status }}">
+                <input type="hidden" name="remark_{{ row.student.pk }}" id="remark_{{ row.student.pk }}"
+                       value="{{ cell.remark }}">
+                <div class="status-btn-group" id="btn_group_{{ row.student.pk }}">
+                  <button type="button" class="s-btn s-btn--p {% if cell.status == 'present' %}is-active{% endif %}"
+                          id="sbtn_p_{{ row.student.pk }}"
+                          onclick="setDirectStatus({{ row.student.pk }}, 'present')"
+                          title="Mark Present (P) - 1 Click">P</button>
+                  <button type="button" class="s-btn s-btn--a {% if cell.status == 'absent' %}is-active{% endif %}"
+                          id="sbtn_a_{{ row.student.pk }}"
+                          onclick="setDirectStatus({{ row.student.pk }}, 'absent')"
+                          title="Mark Absent (A) - 1 Click">A</button>
+                  <button type="button" class="s-btn s-btn--l {% if cell.status == 'late' %}is-active{% endif %}"
+                          id="sbtn_l_{{ row.student.pk }}"
+                          onclick="setDirectStatus({{ row.student.pk }}, 'late')"
+                          title="Mark Late (L) - 1 Click">L</button>
+                  <button type="button" class="s-btn s-btn--note {% if cell.remark %}has-remark{% endif %}"
+                          id="sbtn_note_{{ row.student.pk }}"
+                          onclick="openRemarkModal({{ row.student.pk }})"
+                          title="{% if cell.remark %}Remark: {{ cell.remark }}{% else %}Add Remark{% endif %}">📝</button>
+                </div>
+              {% else %}
+                {# Read-only cell #}
+                {% if cell.status %}
+                  <div class="status-cell status-cell--{{ cell.status }}" title="{{ cell.remark|default:cell.status_display }}">
+                    {% if cell.status == 'present' %}✓{% elif cell.status == 'absent' %}✕{% elif cell.status == 'late' %}⏱{% elif cell.status == 'excused' %}E{% endif %}
+                  </div>
+                {% else %}
+                  <div class="status-cell status-cell--empty" style="cursor: default;" title="Unmarked">·</div>
+                {% endif %}
+              {% endif %}
+            </td>
+          {% endfor %}
+          <td class="col-total" id="total_p_{{ row.student.pk }}">{{ row.totals.present }}</td>
+          <td class="col-total" id="total_a_{{ row.student.pk }}">{{ row.totals.absent }}</td>
+          <td class="col-total" id="total_l_{{ row.student.pk }}">{{ row.totals.late }}</td>
+          <td class="col-total">
+            <span class="rate-badge {% if row.totals.rate >= 90 %}rate-badge--high{% elif row.totals.rate >= 75 %}rate-badge--mid{% else %}rate-badge--low{% endif %}">
+              {{ row.totals.rate }}%
+            </span>
+          </td>
+        </tr>
+        {% empty %}
+        <tr>
+          <td colspan="100" style="text-align:center; padding: 2rem; color: var(--text-secondary);">
+            No students enrolled in this class for the current term.
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot>
+        <tr>
+          <td class="sticky-col" style="font-weight:700;">Daily Total</td>
+          {% for dt in daily_totals_list %}
+            <td class="{% if dt.is_active_day %}col-today{% endif %}{% if dt.date.weekday > 0 and not dt.is_active_day and not dt.is_today %} hide-mobile{% endif %}">
+              {% if dt.total > 0 %}
+                <div style="font-size:0.7rem; font-weight:700;">
+                  <span style="color:#16a34a;">{{ dt.present }}P</span>
+                  <span style="color:#dc2626;">{{ dt.absent }}A</span>
+                </div>
+                <div class="rate-badge {% if dt.rate >= 90 %}rate-badge--high{% elif dt.rate >= 75 %}rate-badge--mid{% else %}rate-badge--low{% endif %}" style="font-size:0.65rem;">
+                  {{ dt.rate }}%
+                </div>
+              {% else %}
+                <span style="color:var(--text-secondary); font-size:0.75rem;">—</span>
+              {% endif %}
+            </td>
+          {% endfor %}
+          <td class="col-total" colspan="4"></td>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+</form>
+
+<!-- Pagination Controls (20 per sheet) -->
+<div class="reg-pagination">
+  <div style="font-size:0.85rem; color:var(--text-secondary); font-weight:600;">
+    Showing {{ page_obj.start_index|default:0 }}–{{ page_obj.end_index|default:0 }} of {{ total_students_count }} student{{ total_students_count|pluralize }}
+  </div>
+  {% if paginator.num_pages > 1 %}
+  <div style="display:flex; align-items:center; gap:0.5rem;">
+    {% if page_obj.has_previous %}
+      <a href="?year={{ year }}&month={{ month }}&date={{ active_date|date:'Y-m-d' }}&page={{ page_obj.previous_page_number }}"
+         class="btn--export" style="text-decoration:none; padding:0.4rem 0.8rem; font-size:0.8rem;">
+        ◀ Previous 20
+      </a>
+    {% else %}
+      <button type="button" class="btn--export" disabled style="opacity:0.4; cursor:not-allowed; padding:0.4rem 0.8rem; font-size:0.8rem;">
+        ◀ Previous 20
+      </button>
+    {% endif %}
+
+    <span style="font-size:0.85rem; font-weight:700; color:var(--text-primary); padding:0 0.5rem;">
+      Page {{ page_obj.number }} of {{ paginator.num_pages }}
+    </span>
+
+    {% if page_obj.has_next %}
+      <a href="?year={{ year }}&month={{ month }}&date={{ active_date|date:'Y-m-d' }}&page={{ page_obj.next_page_number }}"
+         class="btn--export" style="text-decoration:none; padding:0.4rem 0.8rem; font-size:0.8rem;">
+        Next 20 ▶
+      </a>
+    {% else %}
+      <button type="button" class="btn--export" disabled style="opacity:0.4; cursor:not-allowed; padding:0.4rem 0.8rem; font-size:0.8rem;">
+        Next 20 ▶
+      </button>
+    {% endif %}
+  </div>
+  {% endif %}
+</div>
+
+<!-- Remark Modal -->
+<div class="remark-modal" id="remarkModal">
+  <div class="remark-modal__box">
+    <div class="remark-modal__title">📝 Add Remark</div>
+    <input type="text" class="remark-modal__input" id="remarkInput" placeholder="e.g. Sick, Family emergency..." maxlength="255">
+    <div class="remark-modal__actions">
+      <button type="button" class="btn--export" onclick="closeRemarkModal()">Cancel</button>
+      <button type="button" class="btn--save" onclick="saveRemark()">Save Remark</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  // ─── Direct Status Selection logic (1-click) ────────
+  function setDirectStatus(studentId, targetStatus) {
+    var input = document.getElementById('status_' + studentId);
+    if (!input) return;
+
+    var current = input.value;
+    // Toggle off if clicking the already selected status
+    var next = (current === targetStatus) ? '' : targetStatus;
+    input.value = next;
+
+    var btnP = document.getElementById('sbtn_p_' + studentId);
+    var btnA = document.getElementById('sbtn_a_' + studentId);
+    var btnL = document.getElementById('sbtn_l_' + studentId);
+
+    if (btnP) btnP.classList.toggle('is-active', next === 'present');
+    if (btnA) btnA.classList.toggle('is-active', next === 'absent');
+    if (btnL) btnL.classList.toggle('is-active', next === 'late');
+  }
+
+  // Fallback cycle function if used
+  const STATUS_CYCLE = ['present', 'absent', 'late', ''];
+  const STATUS_ICONS = { present: '✓', absent: '✕', late: '⏱', excused: 'E', '': '·' };
+  const STATUS_CLASSES = { present: 'status-cell--present', absent: 'status-cell--absent', late: 'status-cell--late', excused: 'status-cell--excused', '': 'status-cell--empty' };
+
+  function cycleStatus(cell, studentId) {
+    var input = document.getElementById('status_' + studentId);
+    if (!input) return;
+
+    var current = input.value;
+    var idx = STATUS_CYCLE.indexOf(current);
+    var next = STATUS_CYCLE[(idx + 1) % STATUS_CYCLE.length];
+
+    input.value = next;
+    cell.className = 'status-cell ' + (STATUS_CLASSES[next] || 'status-cell--empty');
+    cell.textContent = STATUS_ICONS[next] || '·';
+  }
+
+  function changeActiveDate(dateStr) {
+    var url = new URL(window.location.href);
+    url.searchParams.set('date', dateStr);
+    window.location.href = url.toString();
+  }
+
+  function saveRegister() {
+    document.getElementById('attendanceForm').submit();
+  }
+
+  // ─── Remark modal ────────────────────────────────────
+  var remarkStudentId = null;
+
+  function openRemarkModal(studentId) {
+    remarkStudentId = studentId;
+    var remarkInput = document.getElementById('remarkInput');
+    var existing = document.getElementById('remark_' + studentId);
+    remarkInput.value = existing ? existing.value : '';
+    document.getElementById('remarkModal').classList.add('active');
+    remarkInput.focus();
+  }
+
+  function closeRemarkModal() {
+    document.getElementById('remarkModal').classList.remove('active');
+    remarkStudentId = null;
+  }
+
+  function saveRemark() {
+    if (remarkStudentId !== null) {
+      var remarkHidden = document.getElementById('remark_' + remarkStudentId);
+      var noteBtn = document.getElementById('sbtn_note_' + remarkStudentId);
+      if (remarkHidden) {
+        var val = document.getElementById('remarkInput').value.trim();
+        remarkHidden.value = val;
+        if (noteBtn) {
+          noteBtn.classList.toggle('has-remark', val.length > 0);
+          noteBtn.title = val ? ('Remark: ' + val) : 'Add Remark';
+        }
+      }
+    }
+    closeRemarkModal();
+  }
+
+  // Close modal on background click
+  document.getElementById('remarkModal').addEventListener('click', function(e) {
+    if (e.target === this) closeRemarkModal();
+  });
+
+  // Close modal on Escape
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') closeRemarkModal();
+  });
+</script>
+{% endblock %}

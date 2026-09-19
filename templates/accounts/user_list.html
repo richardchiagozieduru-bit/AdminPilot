@@ -14,8 +14,9 @@ User list (docs/03_Views_and_Endpoints.md: /settings/users/). Owner only.
         Manage staff accounts for your institution.
       </p>
     </div>
-    <div class="quick-actions">
-      <a class="btn btn--primary" href="{% url 'accounts:user_invite' %}">Invite staff member</a>
+    <div class="quick-actions" style="display:flex; gap:0.5rem; align-items:center;">
+      <button type="button" class="btn btn--primary" onclick="openDirectTeacherModal()">+ Add Teacher Directly</button>
+      <a class="btn btn--secondary" href="{% url 'accounts:user_invite' %}">Invite Staff (Link)</a>
     </div>
   </div>
 
@@ -65,4 +66,156 @@ User list (docs/03_Views_and_Endpoints.md: /settings/users/). Owner only.
       </table>
     </div>
   </div>
+
+  <!-- Direct Teacher Creation Modal -->
+  <div id="directTeacherModal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.5); z-index:9999; align-items:center; justify-content:center; backdrop-filter:blur(2px);">
+    <div style="background:var(--card-bg, #fff); border-radius:16px; padding:2rem; width:90%; max-width:480px; box-shadow:0 20px 40px rgba(0,0,0,0.2); position:relative; border:1px solid var(--border-color, #e5e7eb);">
+      <button type="button" onclick="closeDirectTeacherModal()" style="position:absolute; top:1rem; right:1rem; background:none; border:none; font-size:1.4rem; cursor:pointer; color:var(--text-secondary);">&times;</button>
+      
+      <div id="modalFormSection">
+        <h2 style="margin:0 0 0.5rem; font-size:1.25rem; font-weight:700;">Add Teacher Directly</h2>
+        <p style="margin:0 0 1.25rem; font-size:0.85rem; color:var(--text-secondary);">
+          Create an active Staff / Form Teacher account with an instant login password.
+        </p>
+
+        <div id="modalErrors" style="display:none; background:#fef2f2; color:#991b1b; padding:0.75rem; border-radius:8px; font-size:0.85rem; margin-bottom:1rem; border:1px solid #fecaca;"></div>
+
+        <form id="directTeacherForm" onsubmit="handleDirectTeacherSubmit(event)">
+          {% csrf_token %}
+          <div style="margin-bottom:1rem;">
+            <label style="display:block; font-weight:600; font-size:0.85rem; margin-bottom:0.35rem;">Full Name *</label>
+            <input type="text" name="full_name" required placeholder="e.g. Grace Adebayo" style="width:100%; padding:0.6rem 0.75rem; border:1px solid var(--border-color, #e5e7eb); border-radius:8px; font-size:0.9rem;" autofocus>
+          </div>
+
+          <div style="margin-bottom:1rem;">
+            <label style="display:block; font-weight:600; font-size:0.85rem; margin-bottom:0.35rem;">Email Address *</label>
+            <input type="email" name="email" required placeholder="teacher@school.com" style="width:100%; padding:0.6rem 0.75rem; border:1px solid var(--border-color, #e5e7eb); border-radius:8px; font-size:0.9rem;">
+          </div>
+
+          <div style="margin-bottom:1rem;">
+            <label style="display:block; font-weight:600; font-size:0.85rem; margin-bottom:0.35rem;">Phone Number (Optional)</label>
+            <input type="text" name="phone" placeholder="08012345678" style="width:100%; padding:0.6rem 0.75rem; border:1px solid var(--border-color, #e5e7eb); border-radius:8px; font-size:0.9rem;">
+          </div>
+
+          <div style="margin-bottom:1.5rem;">
+            <label style="display:block; font-weight:600; font-size:0.85rem; margin-bottom:0.35rem;">Initial Password *</label>
+            <input type="text" name="password" required value="Welcome@2026" style="width:100%; padding:0.6rem 0.75rem; border:1px solid var(--border-color, #e5e7eb); border-radius:8px; font-size:0.9rem; font-family:monospace; background:#f9fafb;">
+            <span style="font-size:0.75rem; color:var(--text-secondary); margin-top:0.25rem; display:block;">Give this password to the teacher to log in immediately.</span>
+          </div>
+
+          <div style="display:flex; justify-content:flex-end; gap:0.75rem;">
+            <button type="button" class="btn btn--secondary" onclick="closeDirectTeacherModal()">Cancel</button>
+            <button type="submit" class="btn btn--primary" id="btnSubmitTeacher">Create Account</button>
+          </div>
+        </form>
+      </div>
+
+      <!-- Success Credential Card -->
+      <div id="modalSuccessSection" style="display:none; text-align:center;">
+        <div style="font-size:2.5rem; margin-bottom:0.5rem;">🎉</div>
+        <h2 style="margin:0 0 0.5rem; font-size:1.25rem; font-weight:700;">Account Ready!</h2>
+        <p style="font-size:0.85rem; color:var(--text-secondary); margin-bottom:1.25rem;">
+          Share these credentials with the teacher so they can sign in.
+        </p>
+
+        <div style="background:#f8fafc; border:1px dashed #cbd5e1; border-radius:12px; padding:1.25rem; text-align:left; margin-bottom:1.5rem; font-size:0.9rem;">
+          <div style="margin-bottom:0.5rem;"><strong>Teacher:</strong> <span id="credName"></span></div>
+          <div style="margin-bottom:0.5rem;"><strong>Login Email:</strong> <span id="credEmail" style="font-family:monospace; color:#2563eb;"></span></div>
+          <div><strong>Password:</strong> <span id="credPassword" style="font-family:monospace; color:#16a34a; font-weight:700;"></span></div>
+        </div>
+
+        <div style="display:flex; justify-content:center; gap:0.75rem;">
+          <button type="button" class="btn btn--secondary" id="btnCopyCreds" onclick="copyCredentials()">📋 Copy Credentials</button>
+          <button type="button" class="btn btn--primary" onclick="window.location.reload()">Done</button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <script>
+    function openDirectTeacherModal() {
+      document.getElementById('modalFormSection').style.display = 'block';
+      document.getElementById('modalSuccessSection').style.display = 'none';
+      document.getElementById('modalErrors').style.display = 'none';
+      document.getElementById('directTeacherForm').reset();
+      document.querySelector('#directTeacherForm input[name="password"]').value = 'Welcome@2026';
+      var modal = document.getElementById('directTeacherModal');
+      modal.style.display = 'flex';
+      setTimeout(function() {
+        var input = modal.querySelector('input[name="full_name"]');
+        if (input) input.focus();
+      }, 50);
+    }
+
+    function closeDirectTeacherModal() {
+      document.getElementById('directTeacherModal').style.display = 'none';
+    }
+
+    var createdCredentialsText = '';
+
+    async function handleDirectTeacherSubmit(e) {
+      e.preventDefault();
+      var form = e.target;
+      var btn = document.getElementById('btnSubmitTeacher');
+      var errDiv = document.getElementById('modalErrors');
+      btn.disabled = true;
+      btn.textContent = 'Creating...';
+      errDiv.style.display = 'none';
+
+      var formData = new FormData(form);
+
+      try {
+        var resp = await fetch("{% url 'accounts:user_direct_create' %}", {
+          method: 'POST',
+          headers: {
+            'X-Requested-With': 'XMLHttpRequest'
+          },
+          body: formData
+        });
+
+        var data = await resp.json();
+        if (resp.ok && data.status === 'ok') {
+          document.getElementById('modalFormSection').style.display = 'none';
+          document.getElementById('modalSuccessSection').style.display = 'block';
+          document.getElementById('credName').textContent = data.full_name;
+          document.getElementById('credEmail').textContent = data.email;
+          document.getElementById('credPassword').textContent = data.password;
+          createdCredentialsText = "Hello " + data.full_name + ",\nYour AdminPilot teacher account is ready:\nEmail: " + data.email + "\nPassword: " + data.password + "\nLog in at: " + window.location.origin + "/login/";
+        } else {
+          var msgs = [];
+          if (data.errors) {
+            for (var k in data.errors) {
+              msgs.push(data.errors[k].join(' '));
+            }
+          } else {
+            msgs.push(data.message || 'Something went wrong.');
+          }
+          errDiv.innerHTML = msgs.join('<br>');
+          errDiv.style.display = 'block';
+        }
+      } catch (err) {
+        errDiv.textContent = 'Connection error. Please try again.';
+        errDiv.style.display = 'block';
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Create Account';
+      }
+    }
+
+    function copyCredentials() {
+      if (navigator.clipboard) {
+        navigator.clipboard.writeText(createdCredentialsText);
+        var copyBtn = document.getElementById('btnCopyCreds');
+        copyBtn.textContent = '✓ Copied to Clipboard!';
+        setTimeout(function() {
+          copyBtn.textContent = '📋 Copy Credentials';
+        }, 2500);
+      }
+    }
+
+    document.getElementById('directTeacherModal').addEventListener('click', function(e) {
+      if (e.target === this) closeDirectTeacherModal();
+    });
+  </script>
 {% endblock %}

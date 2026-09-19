@@ -17,7 +17,11 @@ from academic.forms import SessionForm, SetupClassesForm, TermForm
 from academic.models import Class, ClassStatus, Session, Term
 from academic.services import create_classes, create_first_session_and_term
 from core.forms import InstitutionSettingsForm
-from core.mixins import RoleRequiredMixin, TenantScopedQuerysetMixin
+from core.mixins import (
+    InstitutionUserRequiredMixin,
+    RoleRequiredMixin,
+    TenantScopedQuerysetMixin,
+)
 from core.models import AuditLog, Institution
 from core.services import write_audit_log
 
@@ -39,6 +43,22 @@ class DashboardView(RoleRequiredMixin, TemplateView):
     module = "dashboard"
 
     def check_access(self, request):
+        # Base institution user checks (auth, platform user turn-away, tenant active)
+        base_blocked = InstitutionUserRequiredMixin.check_access(self, request)
+        if base_blocked is not None:
+            return base_blocked
+
+        # Form Teachers (Staff) land directly in their class attendance register
+        if request.user.role == "Staff":
+            my_class = Class.unscoped.filter(
+                institution_id=request.institution_id,
+                form_teacher=request.user,
+                status=ClassStatus.ACTIVE,
+            ).first()
+            if my_class:
+                return redirect("attendance:class_register", class_id=my_class.pk)
+            return redirect("attendance:dashboard")
+
         blocked = super().check_access(request)
         if blocked is not None:
             return blocked

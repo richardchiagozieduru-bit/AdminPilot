@@ -27,6 +27,13 @@ context_object_name), which is what distinguishes them.
       {% csrf_token %}
       {% for field in form %}
         {% include "includes/field.html" %}
+        {% if field.name == 'form_teacher' %}
+          <div style="margin-top: -0.5rem; margin-bottom: 1.25rem;">
+            <button type="button" class="btn btn--secondary btn--sm" onclick="openClassTeacherModal()" style="font-size: var(--text-xs); padding: 4px 10px;">
+              + Quick Add New Teacher
+            </button>
+          </div>
+        {% endif %}
       {% endfor %}
       <div class="form-actions">
         <button type="submit" class="btn btn--primary">
@@ -36,4 +43,165 @@ context_object_name), which is what distinguishes them.
       </div>
     </form>
   </div>
+
+  <!-- Direct Teacher Modal for Class Form -->
+  <div id="classTeacherModal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.5); z-index:9999; align-items:center; justify-content:center; backdrop-filter:blur(2px);">
+    <div style="background:var(--card-bg, #fff); border-radius:16px; padding:2rem; width:90%; max-width:460px; box-shadow:0 20px 40px rgba(0,0,0,0.2); position:relative; border:1px solid var(--border-color, #e5e7eb);">
+      <button type="button" onclick="closeClassTeacherModal()" style="position:absolute; top:1rem; right:1rem; background:none; border:none; font-size:1.4rem; cursor:pointer; color:var(--text-secondary);">&times;</button>
+      
+      <div id="classModalFormSection">
+        <h2 style="margin:0 0 0.5rem; font-size:1.2rem; font-weight:700;">Add Form Teacher</h2>
+        <p style="margin:0 0 1.25rem; font-size:0.85rem; color:var(--text-secondary);">
+          Create an active teacher account and immediately assign them to this class.
+        </p>
+
+        <div id="classModalErrors" style="display:none; background:#fef2f2; color:#991b1b; padding:0.75rem; border-radius:8px; font-size:0.85rem; margin-bottom:1rem; border:1px solid #fecaca;"></div>
+
+        <form id="classTeacherForm" onsubmit="handleClassTeacherSubmit(event)">
+          {% csrf_token %}
+          <div style="margin-bottom:1rem;">
+            <label style="display:block; font-weight:600; font-size:0.85rem; margin-bottom:0.35rem;">Teacher Full Name *</label>
+            <input type="text" name="full_name" required placeholder="e.g. Grace Adebayo" style="width:100%; padding:0.6rem 0.75rem; border:1px solid var(--border-color, #e5e7eb); border-radius:8px; font-size:0.9rem;" autofocus>
+          </div>
+
+          <div style="margin-bottom:1rem;">
+            <label style="display:block; font-weight:600; font-size:0.85rem; margin-bottom:0.35rem;">Email Address *</label>
+            <input type="email" name="email" required placeholder="teacher@school.com" style="width:100%; padding:0.6rem 0.75rem; border:1px solid var(--border-color, #e5e7eb); border-radius:8px; font-size:0.9rem;">
+          </div>
+
+          <div style="margin-bottom:1rem;">
+            <label style="display:block; font-weight:600; font-size:0.85rem; margin-bottom:0.35rem;">Phone Number (Optional)</label>
+            <input type="text" name="phone" placeholder="08012345678" style="width:100%; padding:0.6rem 0.75rem; border:1px solid var(--border-color, #e5e7eb); border-radius:8px; font-size:0.9rem;">
+          </div>
+
+          <div style="margin-bottom:1.5rem;">
+            <label style="display:block; font-weight:600; font-size:0.85rem; margin-bottom:0.35rem;">Initial Password *</label>
+            <input type="text" name="password" required value="Welcome@2026" style="width:100%; padding:0.6rem 0.75rem; border:1px solid var(--border-color, #e5e7eb); border-radius:8px; font-size:0.9rem; font-family:monospace; background:#f9fafb;">
+          </div>
+
+          <div style="display:flex; justify-content:flex-end; gap:0.75rem;">
+            <button type="button" class="btn btn--secondary" onclick="closeClassTeacherModal()">Cancel</button>
+            <button type="submit" class="btn btn--primary" id="btnSubmitClassTeacher">Create & Select</button>
+          </div>
+        </form>
+      </div>
+
+      <!-- Success Credential View -->
+      <div id="classModalSuccessSection" style="display:none; text-align:center;">
+        <div style="font-size:2rem; margin-bottom:0.5rem;">✅</div>
+        <h2 style="margin:0 0 0.5rem; font-size:1.15rem; font-weight:700;">Teacher Created & Selected!</h2>
+        <p style="font-size:0.85rem; color:var(--text-secondary); margin-bottom:1rem;">
+          The teacher has been added to the dropdown and selected. Save their credentials:
+        </p>
+
+        <div style="background:#f8fafc; border:1px dashed #cbd5e1; border-radius:10px; padding:1rem; text-align:left; margin-bottom:1.25rem; font-size:0.85rem;">
+          <div><strong>Teacher:</strong> <span id="classCredName"></span></div>
+          <div><strong>Email:</strong> <span id="classCredEmail" style="font-family:monospace; color:#2563eb;"></span></div>
+          <div><strong>Password:</strong> <span id="classCredPassword" style="font-family:monospace; color:#16a34a; font-weight:700;"></span></div>
+        </div>
+
+        <div style="display:flex; justify-content:center; gap:0.5rem;">
+          <button type="button" class="btn btn--secondary btn--sm" id="btnCopyClassCreds" onclick="copyClassCredentials()">📋 Copy Credentials</button>
+          <button type="button" class="btn btn--primary btn--sm" onclick="closeClassTeacherModal()">Done</button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <script>
+    function openClassTeacherModal() {
+      document.getElementById('classModalFormSection').style.display = 'block';
+      document.getElementById('classModalSuccessSection').style.display = 'none';
+      document.getElementById('classModalErrors').style.display = 'none';
+      document.getElementById('classTeacherForm').reset();
+      document.querySelector('#classTeacherForm input[name="password"]').value = 'Welcome@2026';
+      var modal = document.getElementById('classTeacherModal');
+      modal.style.display = 'flex';
+      setTimeout(function() {
+        var input = modal.querySelector('input[name="full_name"]');
+        if (input) input.focus();
+      }, 50);
+    }
+
+    function closeClassTeacherModal() {
+      document.getElementById('classTeacherModal').style.display = 'none';
+    }
+
+    var classCredentialsText = '';
+
+    async function handleClassTeacherSubmit(e) {
+      e.preventDefault();
+      var form = e.target;
+      var btn = document.getElementById('btnSubmitClassTeacher');
+      var errDiv = document.getElementById('classModalErrors');
+      btn.disabled = true;
+      btn.textContent = 'Creating...';
+      errDiv.style.display = 'none';
+
+      var formData = new FormData(form);
+
+      try {
+        var resp = await fetch("{% url 'accounts:user_direct_create' %}", {
+          method: 'POST',
+          headers: {
+            'X-Requested-With': 'XMLHttpRequest'
+          },
+          body: formData
+        });
+
+        var data = await resp.json();
+        if (resp.ok && data.status === 'ok') {
+          // Inject into select
+          var teacherSelect = document.getElementById('id_form_teacher');
+          if (teacherSelect) {
+            var opt = document.createElement('option');
+            opt.value = data.user_id;
+            opt.textContent = data.full_name;
+            opt.selected = true;
+            teacherSelect.appendChild(opt);
+          }
+
+          document.getElementById('classModalFormSection').style.display = 'none';
+          document.getElementById('classModalSuccessSection').style.display = 'block';
+          document.getElementById('classCredName').textContent = data.full_name;
+          document.getElementById('classCredEmail').textContent = data.email;
+          document.getElementById('classCredPassword').textContent = data.password;
+          classCredentialsText = "Hello " + data.full_name + ",\nYour AdminPilot teacher account is ready:\nEmail: " + data.email + "\nPassword: " + data.password + "\nLog in at: " + window.location.origin + "/login/";
+        } else {
+          var msgs = [];
+          if (data.errors) {
+            for (var k in data.errors) {
+              msgs.push(data.errors[k].join(' '));
+            }
+          } else {
+            msgs.push(data.message || 'Something went wrong.');
+          }
+          errDiv.innerHTML = msgs.join('<br>');
+          errDiv.style.display = 'block';
+        }
+      } catch (err) {
+        errDiv.textContent = 'Connection error. Please try again.';
+        errDiv.style.display = 'block';
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Create & Select';
+      }
+    }
+
+    function copyClassCredentials() {
+      if (navigator.clipboard) {
+        navigator.clipboard.writeText(classCredentialsText);
+        var copyBtn = document.getElementById('btnCopyClassCreds');
+        copyBtn.textContent = '✓ Copied!';
+        setTimeout(function() {
+          copyBtn.textContent = '📋 Copy Credentials';
+        }, 2000);
+      }
+    }
+
+    document.getElementById('classTeacherModal').addEventListener('click', function(e) {
+      if (e.target === this) closeClassTeacherModal();
+    });
+  </script>
 {% endblock %}

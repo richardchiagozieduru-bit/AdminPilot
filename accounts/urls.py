@@ -40,9 +40,14 @@ urlpatterns = [
         views.InstitutionPasswordResetCompleteView.as_view(),
         name="password_reset_complete",
     ),
-    # Staff User Management (Owner only, CR-003)
+    # Staff User Management (Owner and Administrator)
     path("settings/users/", views.UserListView.as_view(), name="user_list"),
     path("settings/users/invite/", views.UserInviteView.as_view(), name="user_invite"),
+    path(
+        "settings/users/direct-create/",
+        views.DirectTeacherCreateView.as_view(),
+        name="user_direct_create",
+    ),
     path(
         "settings/users/<int:pk>/edit/",
         views.UserUpdateView.as_view(),

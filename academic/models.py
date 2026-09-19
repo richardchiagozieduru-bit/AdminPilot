@@ -10,6 +10,7 @@ Term and Session exist separately because a school's Session spans multiple
 Terms, and enrollments (students/models.py) reference both.
 """
 
+from django.conf import settings
 from django.db import models
 
 from core.models import Institution, TenantScopedModel
@@ -66,6 +67,14 @@ class Class(TenantScopedModel):
         choices=ClassStatus.choices,
         default=ClassStatus.ACTIVE,
     )
+    form_teacher = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="assigned_classes",
+        help_text="The staff member responsible for this class's daily attendance.",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -80,3 +89,7 @@ class Class(TenantScopedModel):
 
     def __str__(self):
         return self.name
+
+    @property
+    def form_teacher_name(self):
+        return self.form_teacher.full_name if self.form_teacher else "Unassigned"

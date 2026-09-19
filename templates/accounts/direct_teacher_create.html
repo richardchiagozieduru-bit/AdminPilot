@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+
+{% block title %}Add Teacher Directly · AdminPilot{% endblock %}
+
+{% block content %}
+  <div class="page-header">
+    <div>
+      <h1>Add Teacher Directly</h1>
+      <p class="page-header__sub">
+        Create an active Staff / Form Teacher account with an instant temporary password.
+      </p>
+    </div>
+    <div class="quick-actions">
+      <a class="btn btn--secondary" href="{% url 'accounts:user_list' %}">← Users & Staff</a>
+    </div>
+  </div>
+
+  <div class="card" style="max-width: 680px;">
+    {% include "includes/form_errors.html" %}
+
+    <form method="post" class="form" novalidate>
+      {% csrf_token %}
+
+      {% for field in form %}
+        {% include "includes/field.html" %}
+      {% endfor %}
+
+      <div class="form-actions" style="margin-top: 1.5rem;">
+        <button type="submit" class="btn btn--primary">Create Teacher Account</button>
+        <a class="btn btn--secondary" href="{% url 'accounts:user_list' %}">Cancel</a>
+      </div>
+    </form>
+  </div>
+{% endblock %}

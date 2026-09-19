@@ -151,3 +151,59 @@ def update_user_role_and_status(
             ip_address=ip_address,
         )
     return user
+
+
+@transaction.atomic
+def create_direct_staff_user(
+    *,
+    institution_id,
+    full_name,
+    email,
+    phone="",
+    password,
+    role=User.Role.STAFF,
+    assigned_class=None,
+    actor,
+    ip_address=None,
+):
+    """Directly create and activate a staff user (e.g. Form Teacher).
+
+    Optionally binds the user to an assigned Class as its form_teacher.
+    """
+    institution = Institution.objects.get(pk=institution_id)
+
+    with institution_db_context(institution_id):
+        user = User.objects.create_user(
+            email=email,
+            institution=institution,
+            role=role,
+            full_name=full_name,
+            phone=phone,
+            password=password,
+            is_active=True,
+        )
+
+        if assigned_class:
+            assigned_class.form_teacher = user
+            assigned_class.save(update_fields=["form_teacher"])
+
+        summary = f"Directly created {role} user {full_name} ({email})"
+        if assigned_class:
+            summary += f" and assigned as Form Teacher for {assigned_class.name}"
+
+        write_audit_log(
+            institution_id=institution_id,
+            actor=actor,
+            action="user.created",
+            summary=summary,
+            target_type="User",
+            target_id=str(user.pk),
+            detail={
+                "email": email,
+                "role": role,
+                "assigned_class_id": assigned_class.pk if assigned_class else None,
+            },
+            ip_address=ip_address,
+        )
+
+    return user

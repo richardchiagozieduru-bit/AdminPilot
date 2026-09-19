@@ -78,6 +78,12 @@ MODULE_ACCESS = {
     # The tiering is a queryset concern, handled in the view.
     "audit_log": Module("Audit Log", FULL, NOBODY, "core:audit_log"),
     "data_export": Module("Data Export", OWNER_ONLY, OWNER_ONLY),
+    "attendance": Module(
+        "Attendance",
+        view=frozenset({OWNER, ADMINISTRATOR, BURSAR, STAFF}),
+        manage=frozenset({OWNER, ADMINISTRATOR, STAFF}),
+        url_name="attendance:dashboard",
+    ),
 }
 
 

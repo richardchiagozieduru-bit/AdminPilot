@@ -29,6 +29,7 @@ urlpatterns = [
     path("", include("billing.urls")),
     path("", include("students.urls")),
     path("", include("reports.urls")),
+    path("attendance/", include("attendance.urls", namespace="attendance")),
     # Last: core owns "" itself (the dashboard), and a pattern that matches the
     # empty path would shadow every include placed after it.
     path("", include("core.urls")),

@@ -10,8 +10,9 @@ from django.contrib import messages
 from django.contrib.auth import login, views as auth_views
 from django.contrib.auth.tokens import default_token_generator
 from django.db import DatabaseError
+from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect
-from django.urls import reverse_lazy
+from django.urls import reverse, reverse_lazy
 from django.utils.http import urlsafe_base64_decode
 from django.views.generic import FormView, ListView, TemplateView
 
@@ -19,6 +20,7 @@ from core.middleware import auth_lookup_context, institution_db_context
 from core.mixins import RoleRequiredMixin
 
 from .forms import (
+    DirectTeacherCreateForm,
     InstitutionLoginForm,
     InstitutionRegistrationForm,
     UserAcceptInviteForm,
@@ -28,6 +30,7 @@ from .forms import (
 from .models import User
 from .services import (
     activate_invited_user,
+    create_direct_staff_user,
     invite_user,
     register_institution,
     update_user_role_and_status,
@@ -82,6 +85,20 @@ class InstitutionLoginView(auth_views.LoginView):
     def form_valid(self, form):
         with institution_db_context(form.get_user().institution_id):
             return super().form_valid(form)
+
+    def get_default_redirect_url(self):
+        user = self.request.user
+        if getattr(user, "role", None) == "Staff":
+            from academic.models import Class, ClassStatus
+            my_class = Class.unscoped.filter(
+                institution_id=user.institution_id,
+                form_teacher=user,
+                status=ClassStatus.ACTIVE,
+            ).first()
+            if my_class:
+                return reverse("attendance:class_register", kwargs={"class_id": my_class.pk})
+            return reverse("attendance:dashboard")
+        return super().get_default_redirect_url()
 
 
 class InstitutionLogoutView(auth_views.LogoutView):
@@ -269,3 +286,86 @@ class UserUpdateView(RoleRequiredMixin, FormView):
             logger.exception("Failed to update user")
             form.add_error(None, "Something went wrong updating the user.")
             return self.form_invalid(form)
+
+
+class DirectTeacherCreateView(RoleRequiredMixin, FormView):
+    """`/settings/users/direct-create/` — Directly create an active teacher/staff account.
+
+    Accessible to Owner and Administrator (module="users", module_action="manage").
+    Supports both standard HTML form post and AJAX/JSON requests (for modals).
+    """
+
+    template_name = "accounts/direct_teacher_create.html"
+    form_class = DirectTeacherCreateForm
+    module = "users"
+    module_action = "manage"
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["institution_id"] = self.request.institution_id
+        return kwargs
+
+    def form_valid(self, form):
+        data = form.cleaned_data
+        try:
+            user = create_direct_staff_user(
+                institution_id=self.request.institution_id,
+                full_name=data["full_name"],
+                email=data["email"],
+                phone=data.get("phone", ""),
+                password=data["password"],
+                role=User.Role.STAFF,
+                assigned_class=data.get("assigned_class"),
+                actor=self.request.user,
+                ip_address=self.request.META.get("REMOTE_ADDR"),
+            )
+        except Exception:
+            logger.exception("Failed to create direct staff user")
+            if (
+                self.request.headers.get("x-requested-with") == "XMLHttpRequest"
+                or self.request.content_type == "application/json"
+            ):
+                return JsonResponse(
+                    {"status": "error", "message": "Failed to create teacher account."},
+                    status=500,
+                )
+            form.add_error(None, "Something went wrong creating the teacher account.")
+            return self.form_invalid(form)
+
+        if (
+            self.request.headers.get("x-requested-with") == "XMLHttpRequest"
+            or self.request.content_type == "application/json"
+        ):
+            assigned_cls = data.get("assigned_class")
+            return JsonResponse({
+                "status": "ok",
+                "user_id": user.pk,
+                "full_name": user.full_name,
+                "email": user.email,
+                "password": data["password"],
+                "assigned_class_id": assigned_cls.pk if assigned_cls else None,
+                "assigned_class_name": assigned_cls.name if assigned_cls else None,
+            })
+
+        assigned_cls = data.get("assigned_class")
+        msg = f"Teacher account created for {user.full_name} ({user.email}). Temporary password: {data['password']}"
+        if assigned_cls:
+            msg += f" — Assigned to {assigned_cls.name}."
+        messages.success(self.request, msg)
+
+        next_url = self.request.GET.get("next") or self.request.POST.get("next")
+        if next_url:
+            return redirect(next_url)
+        return redirect("accounts:user_list")
+
+    def form_invalid(self, form):
+        if (
+            self.request.headers.get("x-requested-with") == "XMLHttpRequest"
+            or self.request.content_type == "application/json"
+        ):
+            errors = {
+                field: [e["message"] for e in err_list]
+                for field, err_list in form.errors.get_json_data().items()
+            }
+            return JsonResponse({"status": "error", "errors": errors}, status=400)
+        return super().form_invalid(form)

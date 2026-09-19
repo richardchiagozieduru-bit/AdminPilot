@@ -152,19 +152,31 @@ class ClassForm(InstitutionScopedFormMixin, AccessibleModelForm):
 
     class Meta:
         model = Class
-        fields = ("name", "order", "status")
-        labels = {"name": "Class name", "order": "Display order"}
+        fields = ("name", "order", "status", "form_teacher")
+        labels = {
+            "name": "Class name",
+            "order": "Display order",
+            "form_teacher": "Form Teacher",
+        }
         help_texts = {
             "name": (
                 "Must match the worksheet tab name used for bulk import, so "
                 'write it the way your staff write it — e.g. "JSS 1A".'
             ),
             "order": "Lower numbers appear first in lists and dropdowns.",
+            "form_teacher": "The staff member responsible for this class's daily attendance register.",
         }
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields["name"].widget.attrs["autofocus"] = True
+        # Scope form_teacher to active staff users in this institution
+        from accounts.models import User
+        self.fields["form_teacher"].queryset = User.objects.filter(
+            institution_id=self.institution_id,
+            is_active=True,
+        ).order_by("full_name")
+        self.fields["form_teacher"].required = False
 
     def clean_name(self):
         name = self.cleaned_data["name"].strip()

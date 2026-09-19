@@ -9,6 +9,7 @@ from accounts.models import User
 from accounts.services import (
     _derive_code,
     activate_invited_user,
+    create_direct_staff_user,
     invite_user,
     register_institution,
     update_user_role_and_status,
@@ -308,3 +309,64 @@ class UserManagementAndPermissionTests(ApprovedSchoolTestCase):
                 403,
                 f"Staff role must be denied access to {url_name}",
             )
+
+    def test_owner_direct_create_teacher_success(self):
+        self.sign_in_owner()
+        session, term, classes = self.configure_school()
+        target_class = classes[0]
+
+        post_data = {
+            "full_name": "Grace Adebayo",
+            "email": "grace@sunrise.example",
+            "phone": "08011223344",
+            "password": "TeacherPassword@123",
+            "assigned_class": target_class.pk,
+        }
+        response = self.client.post(reverse("accounts:user_direct_create"), post_data)
+        self.assertRedirects(response, reverse("accounts:user_list"))
+
+        with self.in_school():
+            teacher = User.objects.get(email="grace@sunrise.example")
+            self.assertEqual(teacher.full_name, "Grace Adebayo")
+            self.assertEqual(teacher.role, User.Role.STAFF)
+            self.assertTrue(teacher.is_active)
+            self.assertTrue(teacher.check_password("TeacherPassword@123"))
+
+            target_class.refresh_from_db()
+            self.assertEqual(target_class.form_teacher, teacher)
+
+            audit = AuditLog.objects.filter(action="user.created", institution=self.institution).first()
+            self.assertIsNotNone(audit)
+
+    def test_direct_create_teacher_ajax_json_response(self):
+        self.sign_in_owner()
+        post_data = {
+            "full_name": "Samuel Okon",
+            "email": "samuel@sunrise.example",
+            "phone": "",
+            "password": "Welcome@2026",
+            "assigned_class": "",
+        }
+        response = self.client.post(
+            reverse("accounts:user_direct_create"),
+            post_data,
+            headers={"x-requested-with": "XMLHttpRequest"},
+        )
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["status"], "ok")
+        self.assertEqual(data["full_name"], "Samuel Okon")
+        self.assertEqual(data["email"], "samuel@sunrise.example")
+        self.assertEqual(data["password"], "Welcome@2026")
+
+    def test_non_owner_cannot_direct_create_teacher(self):
+        self.sign_in_as("Administrator")
+        response = self.client.post(
+            reverse("accounts:user_direct_create"),
+            {
+                "full_name": "Sneaky Teacher",
+                "email": "sneaky@sunrise.example",
+                "password": "Pass",
+            },
+        )
+        self.assertEqual(response.status_code, 403)

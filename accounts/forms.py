@@ -142,11 +142,12 @@ class InstitutionLoginForm(AccessibleFormMixin, AuthenticationForm):
 
 
 class UserInviteForm(AccessibleFormMixin, forms.Form):
-    """Owner invites a new staff account (Administrator or Bursar). CR-003."""
+    """Owner invites a new staff account (Administrator, Bursar, or Staff/Teacher). CR-003."""
 
     ROLE_CHOICES = (
         (User.Role.ADMINISTRATOR, "Administrator"),
         (User.Role.BURSAR, "Bursar"),
+        (User.Role.STAFF, "Teacher / Staff"),
     )
 
     full_name = forms.CharField(
@@ -161,7 +162,7 @@ class UserInviteForm(AccessibleFormMixin, forms.Form):
     role = forms.ChoiceField(
         label="Role",
         choices=ROLE_CHOICES,
-        help_text="Administrator has full management access; Bursar has financial access.",
+        help_text="Administrator has full management access; Bursar has financial access; Teacher/Staff takes attendance.",
     )
 
     def clean_email(self):
@@ -213,6 +214,7 @@ class UserUpdateForm(AccessibleFormMixin, forms.ModelForm):
     ROLE_CHOICES = (
         (User.Role.ADMINISTRATOR, "Administrator"),
         (User.Role.BURSAR, "Bursar"),
+        (User.Role.STAFF, "Teacher / Staff"),
     )
 
     role = forms.ChoiceField(
@@ -234,3 +236,56 @@ class UserUpdateForm(AccessibleFormMixin, forms.ModelForm):
         if self.instance.is_owner and role != User.Role.OWNER:
             raise forms.ValidationError("The Owner's role cannot be changed.")
         return role
+
+
+class DirectTeacherCreateForm(AccessibleFormMixin, forms.Form):
+    """Directly create an active Staff member (Form Teacher) with an instant password."""
+
+    full_name = forms.CharField(
+        label="Teacher Full Name",
+        max_length=255,
+        widget=forms.TextInput(attrs={"placeholder": "e.g. Grace Adebayo", "autofocus": True}),
+    )
+    email = forms.EmailField(
+        label="Email Address",
+        widget=forms.EmailInput(attrs={"placeholder": "teacher@school.com"}),
+        help_text="Login username for the teacher.",
+    )
+    phone = forms.CharField(
+        label="Phone Number",
+        max_length=32,
+        required=False,
+        widget=forms.TextInput(attrs={"placeholder": "08012345678"}),
+    )
+    password = forms.CharField(
+        label="Initial Password",
+        max_length=128,
+        initial="Welcome@2026",
+        widget=forms.TextInput(attrs={"placeholder": "Temporary password"}),
+        help_text="Give this temporary password to the teacher to sign in.",
+    )
+    assigned_class = forms.ModelChoiceField(
+        label="Assign as Form Teacher (Optional)",
+        queryset=None,
+        required=False,
+        empty_label="— Do not assign to a class yet —",
+    )
+
+    def __init__(self, *args, institution_id=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.institution_id = institution_id
+        if institution_id:
+            from academic.models import Class
+            self.fields["assigned_class"].queryset = Class.unscoped.filter(
+                institution_id=institution_id,
+                status="active",
+            ).order_by("order", "name")
+
+    def clean_email(self):
+        email = self.cleaned_data["email"].strip()
+        with auth_lookup_context():
+            if User.objects.filter(email__iexact=email).exists():
+                raise forms.ValidationError(
+                    "An account with this email address already exists."
+                )
+        return email

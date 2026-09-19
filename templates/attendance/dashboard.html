@@ -1,0 +1,186 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Attendance — AdminPilot{% endblock %}
+
+{% block content %}
+<style>
+  .att-hero {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 2rem; flex-wrap: wrap; gap: 1rem;
+  }
+  .att-hero__title { font-size: 1.75rem; font-weight: 700; }
+  .att-hero__subtitle { color: var(--text-secondary); font-size: 0.875rem; margin-top: 0.25rem; }
+
+  /* Stats strip */
+  .att-stats { display: flex; gap: 1rem; margin-bottom: 2rem; flex-wrap: wrap; }
+  .att-stat {
+    flex: 1; min-width: 180px;
+    background: var(--card-bg, #fff); border: 1px solid var(--border-color, #e5e7eb);
+    border-radius: 12px; padding: 1.25rem 1.5rem;
+  }
+  .att-stat__label { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-secondary); font-weight: 600; }
+  .att-stat__value { font-size: 1.75rem; font-weight: 800; margin-top: 0.25rem; }
+  .att-stat__value--green { color: #16a34a; }
+  .att-stat__value--amber { color: #d97706; }
+  .att-stat__value--blue { color: #2563eb; }
+
+  /* My Class spotlight */
+  .att-spotlight {
+    background: linear-gradient(135deg, #2563eb 0%, #7c3aed 100%);
+    color: #fff; border-radius: 16px; padding: 1.75rem 2rem;
+    margin-bottom: 2rem; display: flex; align-items: center;
+    justify-content: space-between; flex-wrap: wrap; gap: 1rem;
+  }
+  .att-spotlight__title { font-size: 1.25rem; font-weight: 700; }
+  .att-spotlight__desc { font-size: 0.875rem; opacity: 0.9; margin-top: 0.25rem; }
+  .att-spotlight__btn {
+    background: rgba(255,255,255,0.2); color: #fff;
+    padding: 0.75rem 1.5rem; border-radius: 10px;
+    text-decoration: none; font-weight: 700; font-size: 0.9rem;
+    border: 2px solid rgba(255,255,255,0.3);
+    transition: background 0.2s;
+  }
+  .att-spotlight__btn:hover { background: rgba(255,255,255,0.35); }
+
+  /* Class cards grid */
+  .att-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1rem; }
+  .att-card {
+    background: var(--card-bg, #fff); border: 1px solid var(--border-color, #e5e7eb);
+    border-radius: 12px; padding: 1.25rem 1.5rem;
+    text-decoration: none; color: inherit;
+    transition: box-shadow 0.2s, border-color 0.2s;
+    display: flex; flex-direction: column; gap: 0.75rem;
+  }
+  .att-card:hover {
+    box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+    border-color: #2563eb;
+  }
+  .att-card__header { display: flex; align-items: center; justify-content: space-between; }
+  .att-card__name { font-weight: 700; font-size: 1.05rem; }
+  .att-card__badge {
+    font-size: 0.7rem; font-weight: 700; padding: 0.2rem 0.6rem;
+    border-radius: 99px; text-transform: uppercase; letter-spacing: 0.04em;
+  }
+  .att-card__badge--done { background: #dcfce7; color: #166534; }
+  .att-card__badge--pending { background: #fef3c7; color: #92400e; }
+  .att-card__teacher { font-size: 0.8rem; color: var(--text-secondary); }
+  .att-card__stats { font-size: 0.85rem; color: var(--text-secondary); }
+  .att-card__stats strong { color: var(--text-primary, #111); }
+  .att-card__bar {
+    height: 6px; border-radius: 3px; background: var(--border-color, #e5e7eb);
+    overflow: hidden;
+  }
+  .att-card__bar-fill { height: 100%; border-radius: 3px; transition: width 0.3s ease; }
+  .att-card__bar-fill--green { background: #16a34a; }
+  .att-card__bar-fill--amber { background: #d97706; }
+</style>
+
+<!-- Hero -->
+<div class="att-hero">
+  <div>
+    <div class="att-hero__title">📋 Attendance</div>
+    <div class="att-hero__subtitle">{{ today|date:"l, d F Y" }}</div>
+  </div>
+</div>
+
+{% if request.user.role != 'Staff' %}
+<!-- Stats Strip (Admins & Owners Only) -->
+<div class="att-stats">
+  <div class="att-stat">
+    <div class="att-stat__label">Classes Completed</div>
+    <div class="att-stat__value att-stat__value--green">{{ completed_count }} / {{ total_classes }}</div>
+  </div>
+  <div class="att-stat">
+    <div class="att-stat__label">School Attendance Rate</div>
+    <div class="att-stat__value att-stat__value--blue">
+      {% if school_rate is not None %}{{ school_rate }}%{% else %}—{% endif %}
+    </div>
+  </div>
+  <div class="att-stat">
+    <div class="att-stat__label">Pending Registers</div>
+    <div class="att-stat__value att-stat__value--amber">{{ total_classes|add:"-"|add:completed_count }}</div>
+  </div>
+</div>
+{% endif %}
+
+{% if my_class %}
+<!-- Form Teacher Spotlight -->
+<div class="att-spotlight">
+  <div>
+    <div class="att-spotlight__title">🎓 My Class — {{ my_class.name }}</div>
+    <div class="att-spotlight__desc">You are the Form Teacher for this class. Open the register to take today's attendance.</div>
+  </div>
+  <a href="{% url 'attendance:class_register' class_id=my_class.pk %}" class="att-spotlight__btn">
+    📖 Open Register
+  </a>
+</div>
+{% elif request.user.role == 'Staff' %}
+<div class="att-spotlight" style="background: linear-gradient(135deg, #4b5563 0%, #374151 100%);">
+  <div>
+    <div class="att-spotlight__title">⚠️ No Class Assigned</div>
+    <div class="att-spotlight__desc">You are logged in as a Form Teacher, but your account has not been assigned to a class yet. Please ask your school administrator to link your account to your class in Academic Structure.</div>
+  </div>
+</div>
+{% endif %}
+
+{% if request.user.role != 'Staff' or my_class %}
+<!-- Class Cards Grid -->
+<div class="att-grid">
+  {% for card in class_cards %}
+    <a class="att-card" href="{% url 'attendance:class_register' class_id=card.klass.pk %}">
+      <div class="att-card__header">
+        <span class="att-card__name">{{ card.klass.name }}</span>
+        {% if card.completed %}
+          <span class="att-card__badge att-card__badge--done">✓ Done</span>
+        {% else %}
+          <span class="att-card__badge att-card__badge--pending">Pending</span>
+        {% endif %}
+      </div>
+      <div class="att-card__teacher">
+        {% if card.klass.form_teacher %}
+          <span>👤 {{ card.klass.form_teacher_name }}</span>
+          {% if can_manage %}
+            <span onclick="event.preventDefault(); window.location='{% url 'academic:class_edit' card.klass.pk %}';"
+                  style="font-size:0.75rem; color:#2563eb; margin-left:0.4rem; font-weight:600; text-decoration:underline; cursor:pointer;"
+                  title="Change Form Teacher">
+              Change
+            </span>
+          {% endif %}
+        {% else %}
+          <span style="color:#d97706; font-weight:700;">👤 Unassigned</span>
+          {% if can_manage %}
+            <span onclick="event.preventDefault(); window.location='{% url 'academic:class_edit' card.klass.pk %}';"
+                  style="font-size:0.75rem; color:#2563eb; margin-left:0.4rem; font-weight:700; text-decoration:underline; cursor:pointer;"
+                  title="Assign Form Teacher">
+              + Assign Teacher
+            </span>
+          {% endif %}
+        {% endif %}
+      </div>
+      {% if card.completed %}
+        <div class="att-card__stats">
+          <strong>{{ card.present }}</strong> / {{ card.total }} present · <strong>{{ card.rate }}%</strong>
+        </div>
+        <div class="att-card__bar">
+          <div class="att-card__bar-fill {% if card.rate >= 90 %}att-card__bar-fill--green{% else %}att-card__bar-fill--amber{% endif %}"
+               style="width: {{ card.rate }}%"></div>
+        </div>
+      {% else %}
+        <div class="att-card__stats">No attendance recorded today</div>
+        <div class="att-card__bar">
+          <div class="att-card__bar-fill" style="width: 0%"></div>
+        </div>
+      {% endif %}
+    </a>
+  {% empty %}
+    {% if request.user.role != 'Staff' %}
+      <p style="color: var(--text-secondary); grid-column: 1/-1; text-align: center; padding: 3rem;">
+        No active classes found. Create classes in
+        <a href="{% url 'academic:class_list' %}">Academic Structure</a> first.
+      </p>
+    {% endif %}
+  {% endfor %}
+</div>
+{% endif %}
+{% endblock %}

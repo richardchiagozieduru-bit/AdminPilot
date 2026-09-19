@@ -48,6 +48,15 @@ that would 403 on click.
             <tr>
               <td>
                 <strong><a href="{% url 'academic:class_detail' klass.pk %}">{{ klass.name }}</a></strong>
+                {% if klass.form_teacher %}
+                  <div style="font-size:var(--text-xs); color:var(--color-text-muted); margin-top:2px;">
+                    👤 {{ klass.form_teacher_name }}
+                  </div>
+                {% else %}
+                  <div style="font-size:var(--text-xs); color:#d97706; margin-top:2px;">
+                    👤 Unassigned {% if can_manage %}· <a href="{% url 'academic:class_edit' klass.pk %}" style="color:#2563eb; font-weight:600;">Assign</a>{% endif %}
+                  </div>
+                {% endif %}
               </td>
               <td>{{ klass.order }}</td>
               <td>

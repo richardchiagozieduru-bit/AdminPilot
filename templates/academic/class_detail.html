@@ -22,6 +22,7 @@ Class Detail Hub — Enrolled students roster, fee structures, and class status 
     </div>
     {% if can_manage %}
       <div class="quick-actions" style="display:flex; gap:var(--space-2); align-items:center;">
+        <a class="btn btn--secondary" href="{% url 'attendance:class_register' klass.pk %}">📋 Attendance Register</a>
         <a class="btn btn--secondary" href="{% url 'academic:class_edit' klass.pk %}">Edit Class</a>
         {% if klass.status == 'active' %}
           <form method="post" action="{% url 'academic:class_deactivate' klass.pk %}" style="display:inline;"
@@ -44,11 +45,22 @@ Class Detail Hub — Enrolled students roster, fee structures, and class status 
   </div>
 
   <!-- Class Statistics / Summary Cards -->
-  <div class="card" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:var(--space-4); background:var(--color-bg-subtle, #f8fafc); border:1px solid var(--color-border); margin-bottom:var(--space-4);">
+  <div class="card" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:var(--space-4); background:var(--color-bg-subtle, #f8fafc); border:1px solid var(--color-border); margin-bottom:var(--space-4);">
     <div>
       <span style="font-size:var(--text-xs); font-weight:var(--weight-semibold); text-transform:uppercase; color:var(--color-text-muted);">Current Enrolled Students</span>
       <div style="font-size:var(--text-2xl); font-family:var(--font-mono); font-weight:800; color:var(--color-text);">
         {{ student_count }}
+      </div>
+    </div>
+    <div>
+      <span style="font-size:var(--text-xs); font-weight:var(--weight-semibold); text-transform:uppercase; color:var(--color-text-muted);">Form Teacher</span>
+      <div style="font-size:var(--text-lg); font-weight:700; color:var(--color-text);">
+        {{ klass.form_teacher_name }}
+        {% if can_manage %}
+          <a href="{% url 'academic:class_edit' klass.pk %}" style="font-size:var(--text-xs); color:#2563eb; font-weight:600; margin-left:var(--space-2); text-decoration:underline;">
+            {% if klass.form_teacher %}Change{% else %}+ Assign Teacher{% endif %}
+          </a>
+        {% endif %}
       </div>
     </div>
     <div>
