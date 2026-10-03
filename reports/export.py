@@ -231,3 +231,47 @@ def generate_payment_export_csv(institution_id, date_from=None, date_to=None):
         ])
 
     return response
+
+
+# --------------------------------------------------------------------------- #
+# Fee Intelligence Export
+# --------------------------------------------------------------------------- #
+def generate_fee_intelligence_csv(data):
+    fee_item_clean = (data.get("selected_item_name") or "Fee_Item").replace(" ", "_")
+    filename = f"Fee_Intelligence_{fee_item_clean}_Export.csv"
+    response = create_csv_response(filename)
+    writer = csv.writer(response)
+
+    writer.writerow([
+        "Student Name",
+        "Admission No",
+        "Class",
+        "Fee Item",
+        "Item Billed (NGN)",
+        "Amount Paid (NGN)",
+        "Outstanding Balance (NGN)",
+        "Settlement Status",
+        "Last Payment Date",
+        "Last Payment Method",
+    ])
+
+    for row in data.get("student_rows", []):
+        last_date = (
+            row["last_payment_date"].strftime("%Y-%m-%d")
+            if row["last_payment_date"]
+            else "—"
+        )
+        writer.writerow([
+            row["student"].full_name,
+            row["student"].admission_number,
+            row["klass"].name,
+            row["item_name"],
+            f"{row['item_billed']:.2f}",
+            f"{row['item_paid']:.2f}",
+            f"{row['item_remaining']:.2f}",
+            row["item_status"].capitalize(),
+            last_date,
+            row["last_payment_method"] or "—",
+        ])
+
+    return response

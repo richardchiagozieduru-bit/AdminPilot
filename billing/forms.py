@@ -293,6 +293,15 @@ class PaymentForm(forms.Form):
         min_value=Decimal("0.00"),
         label="Total Amount to Record",
     )
+    deposit_for_next_term = forms.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        min_value=Decimal("0.00"),
+        initial=Decimal("0.00"),
+        required=False,
+        label="Deposit for Next Term's Fees (Advance Credit)",
+        help_text="Optional advance payment held in reserve as available credit for upcoming terms.",
+    )
     item_allocations_json = forms.CharField(
         required=False,
         widget=forms.HiddenInput(),
@@ -334,23 +343,36 @@ class PaymentForm(forms.Form):
 
     def clean_assignment(self):
         assignment = self.cleaned_data.get("assignment")
-        if assignment and assignment.outstanding_balance <= 0:
+        deposit = self.cleaned_data.get("deposit_for_next_term") or Decimal("0.00")
+        if assignment and assignment.outstanding_balance <= 0 and deposit <= Decimal("0.00"):
             raise forms.ValidationError(
-                "This assignment has no outstanding balance."
+                "This assignment has no outstanding balance. Enter an amount in 'Deposit for Next Term's Fees' to record an advance payment."
             )
         return assignment
 
     def clean(self):
         cleaned_data = super().clean()
         amount = cleaned_data.get("amount")
+        deposit = cleaned_data.get("deposit_for_next_term") or Decimal("0.00")
         apply_credit = cleaned_data.get("apply_credit", False)
         assignment = cleaned_data.get("assignment")
 
+        if assignment and assignment.outstanding_balance <= Decimal("0.00") and deposit <= Decimal("0.00"):
+            self.add_error(
+                "assignment",
+                "This fee package has no outstanding balance. Enter an amount in 'Deposit for Next Term's Fees' to record an advance payment.",
+            )
+
         if amount is not None and amount == Decimal("0.00"):
-            if not apply_credit:
+            if not apply_credit and deposit <= Decimal("0.00"):
                 self.add_error("amount", "Payment amount must be greater than zero unless paying with student credit.")
+            elif deposit > Decimal("0.00"):
+                self.add_error("amount", "Payment amount must be at least the deposit amount.")
             elif assignment and assignment.student.credit_balance <= Decimal("0.00"):
                 self.add_error("amount", "Student has no available credit. Payment amount must be greater than zero.")
+
+        if amount is not None and deposit > Decimal("0.00") and amount < deposit:
+            self.add_error("amount", "Total payment amount cannot be less than the deposit for next term.")
 
         allocations_raw = cleaned_data.get("item_allocations_json")
         cleaned_allocations = []

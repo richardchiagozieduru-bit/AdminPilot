@@ -66,6 +66,9 @@ they show is created in Phases 5 and 6. Enrollment History is real now.
     <a class="btn {% if active_tab == 'timeline' %}btn--secondary{% else %}btn--link{% endif %}"
        href="{% url 'students:timeline' student.pk %}"
        {% if active_tab == 'timeline' %}aria-current="page"{% endif %}>Activity timeline</a>
+    <a class="btn {% if active_tab == 'attendance' %}btn--secondary{% else %}btn--link{% endif %}"
+       href="{% url 'students:attendance' student.pk %}"
+       {% if active_tab == 'attendance' %}aria-current="page"{% endif %}>Attendance</a>
   </nav>
 
   {% if active_tab == 'overview' %}
@@ -277,7 +280,7 @@ they show is created in Phases 5 and 6. Enrollment History is real now.
                 </td>
                 <td style="text-align:right;">
                   <div style="display:inline-flex; gap:var(--space-1); align-items:center;">
-                    {% if can_manage %}
+                    {% if can_manage and not fa.has_payments and not fa.is_paid_in_full %}
                       <a class="btn btn--secondary btn--sm" href="{% url 'billing:fee_assignment_customize' fa.pk %}" style="padding:2px 8px; font-size:var(--text-xs);">
                         Customize
                       </a>
@@ -363,9 +366,36 @@ they show is created in Phases 5 and 6. Enrollment History is real now.
             {% for payment in payments %}
               <tr>
                 <td>{{ payment.payment_date|date:"M j, Y" }}</td>
-                <td>{{ payment.assignment.fee_structure.name }}</td>
-                <td style="text-align:right;">{{ payment.amount }}</td>
-                <td>{{ payment.get_method_display }}</td>
+                <td>
+                  <strong>{{ payment.assignment.fee_structure.name }}</strong>
+                  {% if payment.assignment.fee_structure.term %}
+                    <div style="font-size:11px; color:var(--color-text-muted); margin-top:1px;">
+                      {{ payment.assignment.fee_structure.term.name }}{% if payment.assignment.fee_structure.session %} ({{ payment.assignment.fee_structure.session.name }}){% endif %}
+                    </div>
+                  {% endif %}
+                </td>
+                <td style="text-align:right; font-family:var(--font-mono);">
+                  <div style="font-weight:700;">₦{{ payment.total_settled }}</div>
+                  {% if payment.credit_applied and payment.credit_applied > 0 and payment.amount > 0 %}
+                    <div style="font-size:10px; color:var(--color-text-muted); margin-top:2px;">
+                      ₦{{ payment.amount }} paid · ₦{{ payment.credit_applied }} credit
+                    </div>
+                  {% endif %}
+                </td>
+                <td>
+                  {% if payment.method == 'credit' or payment.amount == 0 %}
+                    <span class="badge" style="background:#e0e7ff; color:#3730a3; font-weight:600; white-space:nowrap;">
+                      ⚡ Student Credit
+                    </span>
+                  {% elif payment.credit_applied and payment.credit_applied > 0 and payment.amount > 0 %}
+                    <span>{{ payment.get_method_display }}</span>
+                    <span class="badge" style="background:#e0e7ff; color:#3730a3; font-weight:600; white-space:nowrap; margin-left:3px; font-size:11px;">
+                      + ⚡ Credit
+                    </span>
+                  {% else %}
+                    {{ payment.get_method_display }}
+                  {% endif %}
+                </td>
                 <td>
                   {% if payment.receipt %}
                     <a href="{% url 'billing:receipt_detail' payment.receipt.pk %}">{{ payment.receipt.receipt_number }}</a>
@@ -415,6 +445,115 @@ they show is created in Phases 5 and 6. Enrollment History is real now.
         </div>
       {% else %}
         <p class="table__empty">No activity recorded for this student yet.</p>
+      {% endif %}
+    </div>
+  {% endif %}
+
+  {% if active_tab == 'attendance' %}
+    <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:var(--space-3); margin-bottom:var(--space-4);">
+      <h2 class="card__title" style="margin:0;">Attendance History</h2>
+      <form method="get" action="{% url 'students:attendance' student.pk %}" style="display:flex; gap:var(--space-2); align-items:center;">
+        <label for="term_filter" style="font-size:var(--text-xs); color:var(--color-text-muted); margin:0;">Term:</label>
+        <select name="term" id="term_filter" class="field__input" onchange="this.form.submit()" style="padding:4px 8px; font-size:var(--text-xs); min-width:180px;">
+          <option value="all" {% if selected_term == 'all' %}selected{% endif %}>All Terms</option>
+          {% for t in terms %}
+            <option value="{{ t.pk }}" {% if selected_term.pk == t.pk %}selected{% endif %}>
+              {{ t.name }} ({{ t.session.name }}){% if t.is_current %} · Current{% endif %}
+            </option>
+          {% endfor %}
+        </select>
+      </form>
+    </div>
+
+    <!-- Attendance Summary KPI Cards -->
+    <div class="stat-grid" style="grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); margin-bottom:var(--space-4);">
+      <div class="card" style="padding:var(--space-3); text-align:center;">
+        <span style="font-size:var(--text-xs); color:var(--color-text-muted); font-weight:600; text-transform:uppercase;">Days Present</span>
+        <div style="font-size:1.6rem; font-weight:700; color:var(--color-success, #16a34a); margin-top:4px;">
+          {{ attendance_summary.days_present }}
+        </div>
+      </div>
+      <div class="card" style="padding:var(--space-3); text-align:center;">
+        <span style="font-size:var(--text-xs); color:var(--color-text-muted); font-weight:600; text-transform:uppercase;">Days Absent</span>
+        <div style="font-size:1.6rem; font-weight:700; color:var(--color-danger, #dc2626); margin-top:4px;">
+          {{ attendance_summary.days_absent }}
+        </div>
+      </div>
+      <div class="card" style="padding:var(--space-3); text-align:center;">
+        <span style="font-size:var(--text-xs); color:var(--color-text-muted); font-weight:600; text-transform:uppercase;">Days Late</span>
+        <div style="font-size:1.6rem; font-weight:700; color:#d97706; margin-top:4px;">
+          {{ attendance_summary.days_late }}
+        </div>
+      </div>
+      <div class="card" style="padding:var(--space-3); text-align:center;">
+        <span style="font-size:var(--text-xs); color:var(--color-text-muted); font-weight:600; text-transform:uppercase;">Attendance Rate</span>
+        <div style="font-size:1.6rem; font-weight:700; color:var(--color-primary, #2563eb); margin-top:4px;">
+          {{ attendance_summary.attendance_rate }}%
+        </div>
+        <div style="font-size:10px; color:var(--color-text-muted); margin-top:2px;">
+          {{ attendance_summary.total_days }} roll call{{ attendance_summary.total_days|pluralize }} recorded
+        </div>
+      </div>
+    </div>
+
+    <!-- Attendance Record Log Table -->
+    <div class="card">
+      <div class="card__header" style="display:flex; justify-content:space-between; align-items:center;">
+        <h3 class="card__title" style="margin:0; font-size:var(--text-base);">Attendance Sessions</h3>
+        <span style="font-size:var(--text-xs); color:var(--color-text-muted);">
+          {% if selected_term == 'all' %}All Recorded Sessions{% else %}{{ selected_term.name }} ({{ selected_term.session.name }}){% endif %}
+        </span>
+      </div>
+      {% if attendance_records %}
+        <div class="table-wrap">
+          <table class="table">
+            <thead>
+              <tr>
+                <th scope="col">Date</th>
+                <th scope="col">Class</th>
+                <th scope="col">Status</th>
+                <th scope="col">Remarks / Notes</th>
+                <th scope="col">Recorded By</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for rec in attendance_records %}
+                <tr>
+                  <td style="font-weight:600; font-family:var(--font-mono); font-size:var(--text-sm);">{{ rec.register.date|date:"M j, Y" }}</td>
+                  <td>{{ rec.register.klass.name }}</td>
+                  <td>
+                    {% if rec.status == 'present' %}
+                      <span class="badge badge--success">Present</span>
+                    {% elif rec.status == 'late' %}
+                      <span class="badge" style="background:#fef3c7; color:#b45309; font-weight:600;">Late</span>
+                    {% elif rec.status == 'absent' %}
+                      <span class="badge badge--danger">Absent</span>
+                    {% elif rec.status == 'excused' %}
+                      <span class="badge" style="background:#e0e7ff; color:#3730a3; font-weight:600;">Excused</span>
+                    {% else %}
+                      <span class="badge">{{ rec.get_status_display }}</span>
+                    {% endif %}
+                  </td>
+                  <td>{{ rec.remark|default:"—" }}</td>
+                  <td style="color:var(--color-text-muted); font-size:var(--text-xs);">
+                    {{ rec.register.taken_by.full_name|default:rec.register.taken_by.email|default:"Staff" }}
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% else %}
+        <div style="padding:var(--space-6); text-align:center; color:var(--color-text-muted);">
+          <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="margin:0 auto var(--space-2); opacity:0.5;">
+            <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+            <line x1="16" y1="2" x2="16" y2="6"></line>
+            <line x1="8" y1="2" x2="8" y2="6"></line>
+            <line x1="3" y1="10" x2="21" y2="10"></line>
+          </svg>
+          <p style="margin:0; font-weight:600;">No attendance records found for this period.</p>
+          <p style="margin:4px 0 0; font-size:var(--text-xs);">Roll calls taken for this student's class will automatically appear here.</p>
+        </div>
       {% endif %}
     </div>
   {% endif %}

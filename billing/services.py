@@ -37,6 +37,7 @@ from .models import (
     MasterFeePackageItem,
     Payment,
     PaymentItemAllocation,
+    PaymentMethod,
     PaymentStatus,
     Receipt,
     StudentFeeAssignment,
@@ -738,8 +739,18 @@ def apply_student_credit(
     amount: Decimal,
     actor,
     ip_address=None,
-) -> CreditTransaction:
-    """Directly apply available credit from the student's credit ledger to an outstanding fee assignment."""
+) -> tuple[CreditTransaction, Payment, Receipt]:
+    """Directly apply available credit from the student's credit ledger to an outstanding fee assignment.
+
+    Enforces:
+      1. Validates credit amount and clamps to outstanding balance
+      2. Creates a negative CreditTransaction and reduces student.credit_balance
+      3. Records an official Payment row (method=PaymentMethod.CREDIT) so it reflects in all payment registers
+      4. Creates itemized PaymentItemAllocation rows across unpaid fee items
+      5. Generates an official sequential Receipt
+      6. Locks the fee structure if open
+      7. Writes audit logs
+    """
     if amount <= Decimal("0.00"):
         raise ValidationError("Credit amount to apply must be greater than zero.")
 
@@ -756,6 +767,9 @@ def apply_student_credit(
             f"Cannot apply ₦{amount}. Student only has ₦{student.credit_balance} available credit."
         )
 
+    institution = student.institution
+
+    # 1. Deduct from student's credit ledger
     credit_tx = CreditTransaction.unscoped.create(
         institution_id=student.institution_id,
         amount=-amount,
@@ -765,23 +779,108 @@ def apply_student_credit(
     student.credit_balance -= amount
     student.save(update_fields=["credit_balance"])
 
+    # 2. Record official Payment row
+    today = timezone.now().date()
+    payment = Payment.unscoped.create(
+        institution_id=student.institution_id,
+        assignment=assignment,
+        amount=amount,
+        payment_date=today,
+        method=PaymentMethod.CREDIT,
+        status=PaymentStatus.ACTIVE,
+        recorded_by=actor,
+    )
+
+    # 3. Create line-item allocations (waterfall allocation across unpaid items)
+    breakdown = assignment.get_item_breakdown(exclude_payment_id=payment.pk)
+    remaining_to_allocate = amount
+    recorded_allocations = []
+    for item_data in breakdown:
+        if remaining_to_allocate <= 0:
+            break
+        needed = item_data["remaining"]
+        if needed > 0:
+            alloc_amt = min(needed, remaining_to_allocate)
+            raw_item = item_data.get("fee_item")
+            if isinstance(raw_item, StudentFeeItem):
+                if raw_item.fee_structure_item_id:
+                    PaymentItemAllocation.unscoped.create(
+                        institution_id=student.institution_id,
+                        payment=payment,
+                        fee_item_id=raw_item.fee_structure_item_id,
+                        amount=alloc_amt,
+                    )
+                    recorded_allocations.append({
+                        "fee_item_id": raw_item.fee_structure_item_id,
+                        "amount": str(alloc_amt),
+                    })
+                else:
+                    PaymentItemAllocation.unscoped.create(
+                        institution_id=student.institution_id,
+                        payment=payment,
+                        student_fee_item=raw_item,
+                        amount=alloc_amt,
+                    )
+                    recorded_allocations.append({
+                        "student_fee_item_id": raw_item.pk,
+                        "amount": str(alloc_amt),
+                    })
+            elif isinstance(raw_item, FeeStructureItem):
+                PaymentItemAllocation.unscoped.create(
+                    institution_id=student.institution_id,
+                    payment=payment,
+                    fee_item=raw_item,
+                    amount=alloc_amt,
+                )
+                recorded_allocations.append({
+                    "fee_item_id": raw_item.pk,
+                    "amount": str(alloc_amt),
+                })
+            remaining_to_allocate -= alloc_amt
+
+    # 4. Lock fee structure
+    fee_structure = assignment.fee_structure
+    if not fee_structure.locked:
+        fee_structure.locked = True
+        fee_structure.save(update_fields=["locked"])
+
+    # 5. Generate Receipt
+    from zoneinfo import ZoneInfo
+    now = timezone.now().astimezone(ZoneInfo(institution.timezone))
+    year = now.year
+    seq = next_sequence_number(
+        institution.pk, InstitutionNumberSequence.Kind.RECEIPT, year
+    )
+    receipt_number = format_sequence(institution.code, year, seq)
+
+    receipt = Receipt.unscoped.create(
+        institution_id=institution.pk,
+        payment=payment,
+        receipt_number=receipt_number,
+        issued_by=actor,
+    )
+
+    # 6. Audit log
     write_audit_log(
         institution_id=student.institution_id,
         actor=actor,
-        action="credit.applied",
-        summary=f"Applied ₦{amount} credit for {student.full_name} to {assignment.fee_structure.name}",
-        target_type="CreditTransaction",
-        target_id=str(credit_tx.pk),
+        action="payment.recorded",
+        summary=f"Applied ₦{amount} credit payment for {student.full_name} to {assignment.fee_structure.name} (receipt {receipt_number})",
+        target_type="Payment",
+        target_id=str(payment.pk),
         detail={
             "amount": str(amount),
             "assignment_id": assignment.pk,
             "student_id": student.pk,
+            "method": PaymentMethod.CREDIT,
+            "receipt_number": receipt_number,
             "remaining_credit": str(student.credit_balance),
+            "allocations": recorded_allocations,
         },
         ip_address=ip_address,
     )
 
-    return credit_tx
+    return credit_tx, payment, receipt
 
 
 
@@ -916,6 +1015,7 @@ def record_payment(
     actor=None,
     apply_credit: bool = False,
     item_allocations: list[dict] = None,
+    deposit_amount: Decimal = Decimal("0.00"),
     ip_address=None,
 ) -> tuple[Payment, Receipt, Decimal, Decimal]:
     """Record a payment atomically with receipt number generation.
@@ -962,12 +1062,21 @@ def record_payment(
     # immediately refunded back as an accidental overpayment in Step 5.
     actual_payment_amount = amount
     if credit_applied > 0 and (amount + credit_applied) > outstanding:
-        actual_payment_amount = max(Decimal("0.00"), amount - credit_applied)
+        fee_portion = max(Decimal("0.00"), amount - deposit_amount)
+        if (fee_portion + credit_applied) > outstanding:
+            fee_portion = max(Decimal("0.00"), fee_portion - credit_applied)
+        actual_payment_amount = fee_portion + deposit_amount
+
+    # If credit covers the entire fee payment and no cash/deposit is paid,
+    # record the transaction as pure student credit regardless of form selection.
+    if actual_payment_amount == Decimal("0.00") and credit_applied > Decimal("0.00"):
+        method = PaymentMethod.CREDIT
 
     payment = Payment.unscoped.create(
         institution_id=institution.pk,
         assignment=assignment,
         amount=actual_payment_amount,
+        credit_applied=credit_applied,
         payment_date=payment_date,
         method=method,
         recorded_by=actor,
@@ -1019,7 +1128,8 @@ def record_payment(
     else:
         # Fallback automatic priority waterfall allocation
         breakdown = assignment.get_item_breakdown(exclude_payment_id=payment.pk)
-        remaining_to_allocate = actual_payment_amount if actual_payment_amount > 0 else credit_applied
+        fee_payment_portion = max(Decimal("0.00"), actual_payment_amount - deposit_amount)
+        remaining_to_allocate = fee_payment_portion + credit_applied
         for item_data in breakdown:
             if remaining_to_allocate <= 0:
                 break
@@ -1062,6 +1172,21 @@ def record_payment(
                         "amount": str(alloc_amt),
                     })
                 remaining_to_allocate -= alloc_amt
+
+    # Create allocation for advance deposit if specified
+    if deposit_amount > Decimal("0.00"):
+        PaymentItemAllocation.unscoped.create(
+            institution_id=institution.pk,
+            payment=payment,
+            fee_item=None,
+            student_fee_item=None,
+            amount=deposit_amount,
+        )
+        recorded_allocations.append({
+            "is_deposit": True,
+            "name": "Deposit for Next Term (Advance Credit)",
+            "amount": str(deposit_amount),
+        })
 
     # Step 3: Lock the fee structure (CR-002, application-layer only)
     fee_structure = assignment.fee_structure
@@ -1107,7 +1232,9 @@ def record_payment(
     ]
     if credit_applied > 0:
         summary_parts.append(f"— {credit_applied} credit applied")
-    if credit_created > 0:
+    if deposit_amount > 0:
+        summary_parts.append(f"— includes ₦{deposit_amount} advance deposit for next term")
+    elif credit_created > 0:
         summary_parts.append(f"— {credit_created} credit generated from overpayment")
 
     write_audit_log(
@@ -1119,6 +1246,7 @@ def record_payment(
         target_id=str(payment.pk),
         detail={
             "amount": str(actual_payment_amount),
+            "deposit_amount": str(deposit_amount),
             "method": method,
             "receipt_number": receipt_number,
             "student_id": student.pk,
@@ -1174,6 +1302,23 @@ def reverse_payment(
             student.credit_balance = Decimal("0.00")
         student.save(update_fields=["credit_balance"])
 
+    # If the payment was made via credit or included credit, restore the credit balance to the student
+    # and offset the applied credit on the fee assignment so the outstanding balance goes back up
+    credit_to_restore = Decimal("0.00")
+    if payment.credit_applied and payment.credit_applied > Decimal("0.00"):
+        credit_to_restore += payment.credit_applied
+    elif payment.method == PaymentMethod.CREDIT:
+        credit_to_restore += payment.amount
+
+    if credit_to_restore > Decimal("0.00"):
+        student.credit_balance += credit_to_restore
+        student.save(update_fields=["credit_balance"])
+        CreditTransaction.unscoped.create(
+            institution_id=payment.institution_id,
+            amount=credit_to_restore,
+            applied_to_assignment=payment.assignment,
+        )
+
     payment.status = PaymentStatus.REVERSED
     payment.reversal_reason = reason
     payment.reversed_at = timezone.now()
@@ -1181,21 +1326,24 @@ def reverse_payment(
 
     receipt_number = getattr(payment.receipt, "receipt_number", "—")
 
+    summary_text = f"Reversed payment of {payment.total_settled} for {student.full_name} (receipt {receipt_number})"
+    if credit_to_restore > Decimal("0.00"):
+        summary_text += f" — restored ₦{credit_to_restore} credit"
+
     write_audit_log(
         institution_id=payment.institution_id,
         actor=actor,
         action="payment.reversed",
-        summary=(
-            f"Reversed payment of {payment.amount} for "
-            f"{student.full_name} (receipt {receipt_number})"
-        ),
+        summary=summary_text[:255],
         target_type="Payment",
         target_id=str(payment.pk),
         reason=reason,
         detail={
             "amount": str(payment.amount),
+            "total_settled": str(payment.total_settled),
             "receipt_number": receipt_number,
             "credit_reversed": str(credit_reversed),
+            "credit_restored": str(credit_to_restore),
         },
         ip_address=ip_address,
     )

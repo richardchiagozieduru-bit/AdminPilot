@@ -948,6 +948,13 @@ class StudentFeePackageCustomizeView(RoleRequiredMixin, TemplateView):
             messages.error(request, "No applicable fee structure found to customize for this student.")
             return redirect("students:payments", pk=self.student.pk if self.student else 1)
 
+        if self.assignment.has_payments or self.assignment.total_paid > Decimal("0.00"):
+            messages.error(
+                request,
+                "This fee package cannot be customized because payments have already been made against it."
+            )
+            return redirect("students:payments", pk=self.student.pk)
+
         return super().dispatch(request, *args, **kwargs)
 
     def get_context_data(self, **kwargs):
@@ -1071,7 +1078,7 @@ class StudentCreditApplyView(RoleRequiredMixin, View):
         form = ApplyCreditForm(request.POST, student=student, institution_id=request.institution_id)
         if form.is_valid():
             try:
-                credit_tx = apply_student_credit(
+                credit_tx, payment, receipt = apply_student_credit(
                     student=student,
                     assignment=form.cleaned_data["assignment"],
                     amount=form.cleaned_data["amount"],
@@ -1082,7 +1089,7 @@ class StudentCreditApplyView(RoleRequiredMixin, View):
                 applied_amount = abs(credit_tx.amount)
                 messages.success(
                     request,
-                    f"₦{applied_amount} credit applied successfully to {form.cleaned_data['assignment'].fee_structure.name}. Remaining credit: ₦{student.credit_balance}.",
+                    f"₦{applied_amount} credit payment applied successfully to {form.cleaned_data['assignment'].fee_structure.name} (Receipt: {receipt.receipt_number}). Remaining credit: ₦{student.credit_balance}.",
                 )
             except ValidationError as e:
                 messages.error(request, str(e.message))
@@ -1416,6 +1423,22 @@ class PaymentCreateView(RoleRequiredMixin, BillingFormKwargsMixin, FormView):
             for r in credits_qs
         }
 
+        # 4b. Bulk fetch credit payments per assignment in 1 query
+        credit_pmts_qs = (
+            Payment.objects.filter(
+                institution_id=self.request.institution_id,
+                status=PaymentStatus.ACTIVE,
+                method=PaymentMethod.CREDIT,
+            )
+            .order_by()
+            .values("assignment_id")
+            .annotate(total=models.Sum("amount"))
+        )
+        credit_pmts_map = {
+            r["assignment_id"]: (r["total"] or Decimal("0.00"))
+            for r in credit_pmts_qs
+        }
+
         # 5. Fetch all assignments with student, fee structure, and prefetched items
         assignments = (
             StudentFeeAssignment.objects.filter(
@@ -1434,90 +1457,97 @@ class PaymentCreateView(RoleRequiredMixin, BillingFormKwargsMixin, FormView):
         data = {}
         for a in assignments:
             paid = payments_map.get(a.pk, Decimal("0.00"))
-            applied_credits = credits_map.get(a.pk, Decimal("0.00"))
-            outstanding = a.amount_due - (paid - applied_credits)
+            credit_pmts = credit_pmts_map.get(a.pk, Decimal("0.00"))
+            applied_credits_total = credits_map.get(a.pk, Decimal("0.00"))
+            legacy_credits = max(Decimal("0.00"), applied_credits_total - credit_pmts)
+            total_active_paid = paid + legacy_credits
+            raw_outstanding = a.amount_due - total_active_paid
+            outstanding = max(Decimal("0.00"), raw_outstanding)
 
-            if outstanding > 0:
-                paid_item_map = alloc_map.get(a.pk, {})
-                total_allocated = sum(paid_item_map.values(), Decimal("0.00"))
-                total_active_paid = paid + applied_credits
-                unallocated_paid = max(Decimal("0.00"), total_active_paid - total_allocated)
-                remaining_unallocated = unallocated_paid
+            paid_item_map = alloc_map.get(a.pk, {})
+            total_allocated = sum(paid_item_map.values(), Decimal("0.00"))
+            unallocated_paid = max(Decimal("0.00"), total_active_paid - total_allocated)
+            remaining_unallocated = unallocated_paid
 
-                # If unadjusted and items count or amounts diverge, self-heal
-                if not a.adjustment_reason and (
-                    a.amount_due != a.fee_structure.total_amount
-                    or a.items.count() != a.fee_structure.items.count()
-                ):
-                    from .services import sync_student_fee_items
-                    sync_student_fee_items(a)
-                    a.refresh_from_db(fields=["amount_due"])
-                    outstanding = a.amount_due - (paid - applied_credits)
+            # If unadjusted and items count or amounts diverge, self-heal
+            if not a.adjustment_reason and (
+                a.amount_due != a.fee_structure.total_amount
+                or a.items.count() != a.fee_structure.items.count()
+            ):
+                from .services import sync_student_fee_items
+                sync_student_fee_items(a)
+                a.refresh_from_db(fields=["amount_due"])
+                raw_outstanding = a.amount_due - total_active_paid
+                outstanding = max(Decimal("0.00"), raw_outstanding)
 
-                items_breakdown = []
-                # If student-specific customized items exist, use them; otherwise use fee structure items
-                custom_items = list(a.items.all())
-                if custom_items:
-                    item_list = [
-                        (s_item.fee_structure_item_id or s_item.pk, s_item.name, s_item.amount, s_item.is_included)
-                        for s_item in custom_items
-                    ]
+            items_breakdown = []
+            # If student-specific customized items exist, use them; otherwise use fee structure items
+            custom_items = list(a.items.all())
+            if custom_items:
+                item_list = [
+                    (s_item.fee_structure_item_id or s_item.pk, s_item.name, s_item.amount, s_item.is_included)
+                    for s_item in custom_items
+                ]
+            else:
+                item_list = [
+                    (item.pk, item.name, item.amount, True)
+                    for item in a.fee_structure.items.all()
+                ]
+
+            for item_key, item_name, billed, is_included in item_list:
+                if not is_included:
+                    continue
+
+                direct_paid = paid_item_map.get(item_key, Decimal("0.00"))
+                fallback_applied = Decimal("0.00")
+                if remaining_unallocated > 0:
+                    needed = max(Decimal("0.00"), billed - direct_paid)
+                    fallback_applied = min(needed, remaining_unallocated)
+                    remaining_unallocated -= fallback_applied
+                total_item_paid = direct_paid + fallback_applied
+                remaining = max(Decimal("0.00"), billed - total_item_paid)
+
+                if total_item_paid >= billed and billed > 0:
+                    status = "paid"
+                elif total_item_paid > 0:
+                    status = "partial"
                 else:
-                    item_list = [
-                        (item.pk, item.name, item.amount, True)
-                        for item in a.fee_structure.items.all()
-                    ]
+                    status = "unpaid"
 
-                for item_key, item_name, billed, is_included in item_list:
-                    if not is_included:
-                        continue
+                items_breakdown.append({
+                    "fee_item_id": item_key,
+                    "name": item_name,
+                    "billed": str(billed),
+                    "paid": str(total_item_paid),
+                    "remaining": str(remaining),
+                    "status": status,
+                })
 
-                    direct_paid = paid_item_map.get(item_key, Decimal("0.00"))
-                    fallback_applied = Decimal("0.00")
-                    if remaining_unallocated > 0:
-                        needed = max(Decimal("0.00"), billed - direct_paid)
-                        fallback_applied = min(needed, remaining_unallocated)
-                        remaining_unallocated -= fallback_applied
-                    total_item_paid = direct_paid + fallback_applied
-                    remaining = max(Decimal("0.00"), billed - total_item_paid)
-
-                    if total_item_paid >= billed and billed > 0:
-                        status = "paid"
-                    elif total_item_paid > 0:
-                        status = "partial"
-                    else:
-                        status = "unpaid"
-
-                    items_breakdown.append({
-                        "fee_item_id": item_key,
-                        "name": item_name,
-                        "billed": str(billed),
-                        "paid": str(total_item_paid),
-                        "remaining": str(remaining),
-                        "status": status,
-                    })
-
-                data[str(a.pk)] = {
-                    "student_id": str(a.student_id),
-                    "student_name": a.student.full_name,
-                    "admission_number": a.student.admission_number,
-                    "class_id": str(a.fee_structure.klass_id),
-                    "class_name": a.fee_structure.klass.name,
-                    "session_id": str(a.fee_structure.session_id) if a.fee_structure.session_id else "",
-                    "session_name": a.fee_structure.session.name if a.fee_structure.session else "",
-                    "term_id": str(a.fee_structure.term_id) if a.fee_structure.term_id else "",
-                    "term_name": a.fee_structure.term.name if a.fee_structure.term else "",
-                    "fee_structure_id": str(a.fee_structure_id),
-                    "fee_structure_name": a.fee_structure.name,
-                    "total_billed": str(a.amount_due),
-                    "total_outstanding": str(outstanding),
-                    "credit_balance": str(a.student.credit_balance),
-                    "items": items_breakdown,
-                }
+            data[str(a.pk)] = {
+                "student_id": str(a.student_id),
+                "student_name": a.student.full_name,
+                "admission_number": a.student.admission_number,
+                "class_id": str(a.fee_structure.klass_id),
+                "class_name": a.fee_structure.klass.name,
+                "session_id": str(a.fee_structure.session_id) if a.fee_structure.session_id else "",
+                "session_name": a.fee_structure.session.name if a.fee_structure.session else "",
+                "term_id": str(a.fee_structure.term_id) if a.fee_structure.term_id else "",
+                "term_name": a.fee_structure.term.name if a.fee_structure.term else "",
+                "fee_structure_id": str(a.fee_structure_id),
+                "fee_structure_name": a.fee_structure.name,
+                "total_billed": str(a.amount_due),
+                "total_paid": str(a.total_paid),
+                "has_payments": a.total_paid > Decimal("0.00"),
+                "total_outstanding": str(outstanding),
+                "is_cleared": raw_outstanding <= Decimal("0.00"),
+                "credit_balance": str(a.student.credit_balance),
+                "items": items_breakdown,
+            }
         context["assignments_json"] = json.dumps(data)
         return context
 
     def form_valid(self, form):
+        deposit_for_next_term = form.cleaned_data.get("deposit_for_next_term") or Decimal("0.00")
         try:
             payment, receipt, credit_applied, credit_created = record_payment(
                 assignment=form.cleaned_data["assignment"],
@@ -1527,17 +1557,22 @@ class PaymentCreateView(RoleRequiredMixin, BillingFormKwargsMixin, FormView):
                 actor=self.request.user,
                 apply_credit=form.cleaned_data.get("apply_credit", False),
                 item_allocations=form.cleaned_data.get("cleaned_allocations"),
+                deposit_amount=deposit_for_next_term,
                 ip_address=self.request.META.get("REMOTE_ADDR"),
             )
             msg = f"Receipt {receipt.receipt_number} generated."
             if payment.amount > Decimal("0.00"):
-                msg = f"Payment of {payment.amount} recorded — receipt {receipt.receipt_number}."
+                msg = f"Payment of ₦{payment.amount} recorded — receipt {receipt.receipt_number}."
             if credit_applied > 0:
                 student = form.cleaned_data["assignment"].student
                 student.refresh_from_db(fields=["credit_balance"])
                 msg += f" ₦{credit_applied} credit applied (remaining credit: ₦{student.credit_balance})."
-            if credit_created > 0:
-                msg += f" {credit_created} added to student's credit balance."
+            if deposit_for_next_term > 0:
+                student = form.cleaned_data["assignment"].student
+                student.refresh_from_db(fields=["credit_balance"])
+                msg += f" ₦{deposit_for_next_term} advance deposit added to available credit (new credit balance: ₦{student.credit_balance})."
+            elif credit_created > 0:
+                msg += f" ₦{credit_created} added to student's credit balance."
             messages.success(self.request, msg)
             return redirect("billing:receipt_detail", pk=receipt.pk)
         except ValidationError as e:
@@ -1582,6 +1617,8 @@ class PaymentDetailView(
         context["allocations"] = self.object.allocations.select_related(
             "fee_item", "student_fee_item"
         )
+        context["has_deposit_allocation"] = self.object.allocations.filter(fee_item__isnull=True, student_fee_item__isnull=True).exists()
+        context["credit_created"] = self.object.credit_transactions.filter(amount__gt=0).first()
         return context
 
 
@@ -1714,6 +1751,8 @@ class ReceiptDetailView(
         context["fee_structure"] = payment.assignment.fee_structure
         context["institution"] = payment.institution
         context["allocations"] = payment.allocations.select_related("fee_item", "student_fee_item")
+        context["has_deposit_allocation"] = payment.allocations.filter(fee_item__isnull=True, student_fee_item__isnull=True).exists()
         context["assignment"] = payment.assignment
         context["remaining_package_balance"] = payment.assignment.outstanding_balance
+        context["credit_created"] = payment.credit_transactions.filter(amount__gt=0).first()
         return context

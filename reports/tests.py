@@ -150,3 +150,68 @@ class Phase7ReportsTests(ApprovedSchoolTestCase):
 
         response = self.client.get(reverse("reports:export_payments"))
         self.assertEqual(response.status_code, 403)
+
+    def test_fee_intelligence_view_and_calculations(self):
+        from billing.services import create_fee_structure, record_payment
+        from billing.models import PaymentMethod, StudentFeeAssignment
+
+        with self.in_school():
+            structure = create_fee_structure(
+                institution_id=self.institution.pk,
+                name="Second Term Senior Package",
+                klass=self.klass,
+                session=self.session,
+                term=self.term,
+                items=[
+                    {"name": "Tuition", "amount": Decimal("50000.00"), "is_mandatory": True},
+                    {"name": "Books", "amount": Decimal("15000.00"), "is_mandatory": True},
+                ],
+                actor=self.owner,
+            )
+            assignment = StudentFeeAssignment.unscoped.get(
+                student=self.student, fee_structure=structure
+            )
+            # Pay 50,000 which waterfall allocates to Tuition (50k) and leaves Books unpaid (15k)
+            record_payment(
+                assignment=assignment,
+                amount=Decimal("50000.00"),
+                payment_date=datetime.date.today(),
+                method=PaymentMethod.TRANSFER,
+                actor=self.owner,
+            )
+
+        self.sign_in_owner()
+        # Default landing with no params
+        resp_default = self.client.get(reverse("reports:fee_intelligence"))
+        self.assertEqual(resp_default.status_code, 200)
+        self.assertContains(resp_default, "Fee Intelligence & Payment Analytics")
+
+        # Query Tuition
+        resp = self.client.get(reverse("reports:fee_intelligence"), {"fee_item_name": "Tuition"})
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Fee Intelligence & Payment Analytics")
+        self.assertContains(resp, "Tuition")
+        self.assertContains(resp, "Paid in Full")
+        self.assertContains(resp, "50000.00")
+
+        # Query Books
+        resp_books = self.client.get(reverse("reports:fee_intelligence"), {"fee_item_name": "Books"})
+        self.assertEqual(resp_books.status_code, 200)
+        self.assertContains(resp_books, "Unpaid")
+        self.assertContains(resp_books, "15000.00")
+
+    def test_fee_intelligence_csv_export(self):
+        self.sign_in_owner()
+        resp = self.client.get(
+            reverse("reports:fee_intelligence_export"),
+            {"fee_item_name": "Tuition"},
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(resp["Content-Type"].startswith("text/csv"))
+        self.assertIn("attachment; filename=", resp["Content-Disposition"])
+
+    def test_bursar_allowed_fee_intelligence(self):
+        self.sign_in_as("Bursar")
+        resp = self.client.get(reverse("reports:fee_intelligence"))
+        self.assertEqual(resp.status_code, 200)
+

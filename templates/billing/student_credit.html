@@ -28,14 +28,19 @@ Student credit balance and transaction history
         ₦{{ student.credit_balance }}
       </div>
       <p style="margin:var(--space-1) 0 0; font-size:var(--text-xs); color:var(--color-text-muted);">
-        Credit is automatically generated from overpayments and can be applied directly to fee assignments.
+        Credit is automatically generated from advance deposits and overpayments, and can be applied directly to fee assignments.
       </p>
     </div>
-    {% if student.credit_balance > 0 and can_manage %}
-      <div>
-        <button type="button" class="btn btn--primary" onclick="openCreditModal()">
-          ⚡ Apply Credit to Outstanding Fee
-        </button>
+    {% if can_manage %}
+      <div style="display:flex; gap:var(--space-2); align-items:center; flex-wrap:wrap;">
+        <a class="btn btn--secondary" href="{% url 'billing:payment_create' %}?student_id={{ student.pk }}">
+          + Record Advance Deposit / Payment
+        </a>
+        {% if student.credit_balance > 0 %}
+          <button type="button" class="btn btn--primary" onclick="openCreditModal()">
+            ⚡ Apply Credit to Outstanding Fee
+          </button>
+        {% endif %}
       </div>
     {% endif %}
   </div>
@@ -101,7 +106,11 @@ Student credit balance and transaction history
               <td>{{ tx.created_at|date:"M j, Y H:i" }}</td>
               <td>
                 {% if tx.amount > 0 %}
-                  <span class="badge badge--success">+ Credit (Overpayment)</span>
+                  {% if tx.applied_to_assignment %}
+                    <span class="badge badge--success">+ Credit Refund (Reversal)</span>
+                  {% else %}
+                    <span class="badge badge--success">+ Credit (Deposit / Overpayment)</span>
+                  {% endif %}
                 {% else %}
                   <span class="badge badge--info">- Applied to Fee</span>
                 {% endif %}
@@ -111,10 +120,14 @@ Student credit balance and transaction history
               </td>
               <td>
                 {% if tx.source_payment %}
-                  Overpayment on
+                  Deposit / Overpayment on
                   <a href="{% url 'billing:payment_detail' tx.source_payment.pk %}" class="btn btn--link">Payment #{{ tx.source_payment.pk }}</a>
                 {% elif tx.applied_to_assignment %}
-                  Applied to Fee Assignment #{{ tx.applied_to_assignment.pk }} ({{ tx.applied_to_assignment.fee_structure.name }})
+                  {% if tx.amount > 0 %}
+                    Refunded from reversed payment on Fee Assignment #{{ tx.applied_to_assignment.pk }} ({{ tx.applied_to_assignment.fee_structure.name }}{% if tx.applied_to_assignment.fee_structure.term %} · {{ tx.applied_to_assignment.fee_structure.term.name }}{% endif %})
+                  {% else %}
+                    Applied to Fee Assignment #{{ tx.applied_to_assignment.pk }} ({{ tx.applied_to_assignment.fee_structure.name }}{% if tx.applied_to_assignment.fee_structure.term %} · {{ tx.applied_to_assignment.fee_structure.term.name }}{% endif %})
+                  {% endif %}
                 {% else %}
                   —
                 {% endif %}

@@ -17,6 +17,7 @@ from core.mixins import RoleRequiredMixin, TenantScopedQuerysetMixin
 from core.services import write_audit_log
 from reports.export import (
     generate_class_summary_csv,
+    generate_fee_intelligence_csv,
     generate_income_csv,
     generate_outstanding_fees_csv,
     generate_payment_export_csv,
@@ -25,6 +26,7 @@ from reports.export import (
 )
 from reports.services import (
     get_class_summary_data,
+    get_fee_intelligence_data,
     get_income_report_data,
     get_outstanding_fees_data,
     get_student_payment_history_data,
@@ -299,3 +301,115 @@ class PaymentExportView(RoleRequiredMixin, View):
             date_from=date_from if date_from else None,
             date_to=date_to if date_to else None,
         )
+
+
+# --------------------------------------------------------------------------- #
+# Fee Intelligence & Payment Analytics
+# --------------------------------------------------------------------------- #
+class FeeIntelligenceReportView(RoleRequiredMixin, TemplateView):
+    """`/reports/fee-intelligence/` — Item-level fee analytics and defaulter tracking."""
+
+    template_name = "reports/fee_intelligence.html"
+    module = "reports"
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        institution_id = self.request.institution_id
+
+        # Classes and Terms for filter dropdowns
+        context["classes"] = Class.unscoped.filter(
+            institution_id=institution_id, status=ClassStatus.ACTIVE
+        ).order_by("order", "name")
+        all_terms = (
+            Term.objects.filter(institution_id=institution_id)
+            .select_related("session")
+            .order_by("-session__start_date", "-start_date")
+        )
+        context["terms"] = all_terms
+
+        fee_item_name = self.request.GET.get("fee_item_name", "").strip() or None
+        class_id = self.request.GET.get("class_id", "").strip() or None
+        term_id = self.request.GET.get("term_id", "").strip() or None
+        status_filter = self.request.GET.get("status", "all").strip()
+        method = self.request.GET.get("method", "").strip() or None
+        date_from = self.request.GET.get("date_from", "").strip() or None
+        date_to = self.request.GET.get("date_to", "").strip() or None
+
+        # Default term to current term if not specified
+        if not term_id and all_terms.filter(is_current=True).exists():
+            term_id = str(all_terms.filter(is_current=True).first().pk)
+
+        data = get_fee_intelligence_data(
+            institution_id=institution_id,
+            fee_item_name=fee_item_name,
+            class_id=class_id,
+            term_id=term_id,
+            status_filter=status_filter,
+            date_from=date_from,
+            date_to=date_to,
+            method=method,
+        )
+
+        context.update(data)
+        context["selected_class_id"] = str(class_id) if class_id else ""
+        context["selected_term_id"] = str(term_id) if term_id else ""
+        context["selected_status"] = status_filter
+        context["selected_method"] = method or ""
+        context["date_from"] = date_from or ""
+        context["date_to"] = date_to or ""
+
+        # Build querystring for export link preserving filters
+        params = self.request.GET.copy()
+        if not params.get("fee_item_name") and data.get("selected_item_name"):
+            params["fee_item_name"] = data["selected_item_name"]
+        if not params.get("term_id") and term_id:
+            params["term_id"] = term_id
+        context["export_querystring"] = params.urlencode()
+
+        return context
+
+
+class FeeIntelligenceExportView(RoleRequiredMixin, View):
+    """`/reports/fee-intelligence/export/` — CSV export for fee item analytics."""
+
+    module = "reports"
+
+    def get(self, request, *args, **kwargs):
+        institution_id = request.institution_id
+        fee_item_name = request.GET.get("fee_item_name", "").strip() or None
+        class_id = request.GET.get("class_id", "").strip() or None
+        term_id = request.GET.get("term_id", "").strip() or None
+        status_filter = request.GET.get("status", "all").strip()
+        method = request.GET.get("method", "").strip() or None
+        date_from = request.GET.get("date_from", "").strip() or None
+        date_to = request.GET.get("date_to", "").strip() or None
+
+        data = get_fee_intelligence_data(
+            institution_id=institution_id,
+            fee_item_name=fee_item_name,
+            class_id=class_id,
+            term_id=term_id,
+            status_filter=status_filter,
+            date_from=date_from,
+            date_to=date_to,
+            method=method,
+        )
+
+        write_audit_log(
+            institution_id=institution_id,
+            actor=request.user,
+            action="report.exported",
+            summary=f"Exported Fee Intelligence CSV for {data.get('selected_item_name', 'item')}",
+            target_type="Report",
+            target_id=data.get("selected_item_name", ""),
+            detail={
+                "report": "fee_intelligence",
+                "fee_item": data.get("selected_item_name"),
+                "status": status_filter,
+                "class_id": class_id,
+                "term_id": term_id,
+            },
+            ip_address=request.META.get("REMOTE_ADDR"),
+        )
+
+        return generate_fee_intelligence_csv(data)

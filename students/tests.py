@@ -1266,3 +1266,82 @@ class StudentBulkDeleteTests(ApprovedSchoolTestCase):
             self.assertEqual(res["count"], 0)
             self.assertEqual(Student.objects.filter(pk=s1.pk).count(), 1)
 
+
+class StudentAttendanceTabTests(StudentsTestCase):
+    def setUp(self):
+        super().setUp()
+        self.student = self.make_student("Chidi", "Obi", self.jss1a, suffix="000088")
+
+    def test_student_attendance_view_renders_kpis_and_records(self):
+        from attendance.models import AttendanceRecord, AttendanceStatus, ClassAttendanceRegister
+        with self.in_school():
+            reg1 = ClassAttendanceRegister.objects.create(
+                institution_id=self.school.pk,
+                klass=self.jss1a,
+                session=self.session,
+                term=self.term,
+                date=datetime.date(2026, 9, 15),
+                taken_by=self.owner,
+            )
+            AttendanceRecord.objects.create(
+                institution_id=self.school.pk,
+                register=reg1,
+                student=self.student,
+                status=AttendanceStatus.PRESENT,
+                remark="On time",
+            )
+
+            reg2 = ClassAttendanceRegister.objects.create(
+                institution_id=self.school.pk,
+                klass=self.jss1a,
+                session=self.session,
+                term=self.term,
+                date=datetime.date(2026, 9, 16),
+                taken_by=self.owner,
+            )
+            AttendanceRecord.objects.create(
+                institution_id=self.school.pk,
+                register=reg2,
+                student=self.student,
+                status=AttendanceStatus.LATE,
+                remark="Heavy rain",
+            )
+
+            reg3 = ClassAttendanceRegister.objects.create(
+                institution_id=self.school.pk,
+                klass=self.jss1a,
+                session=self.session,
+                term=self.term,
+                date=datetime.date(2026, 9, 17),
+                taken_by=self.owner,
+            )
+            AttendanceRecord.objects.create(
+                institution_id=self.school.pk,
+                register=reg3,
+                student=self.student,
+                status=AttendanceStatus.ABSENT,
+                remark="Illness",
+            )
+
+        self.sign_in_owner()
+        url = reverse("students:attendance", args=[self.student.pk])
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, 200)
+
+        # Asserts KPI counts and remarks
+        self.assertContains(resp, "Attendance History")
+        self.assertContains(resp, "66.7%")
+        self.assertContains(resp, "Heavy rain")
+        self.assertContains(resp, "On time")
+        self.assertContains(resp, "Illness")
+
+    def test_student_attendance_view_empty_state(self):
+        new_student = self.make_student("Ngozi", "Okeke", self.jss1a, suffix="000089")
+        self.sign_in_owner()
+        url = reverse("students:attendance", args=[new_student.pk])
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "No attendance records found")
+        self.assertContains(resp, "0.0%")
+
+

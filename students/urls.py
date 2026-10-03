@@ -59,6 +59,11 @@ urlpatterns = [
         views.StudentTimelineView.as_view(),
         name="timeline",
     ),
+    path(
+        "students/<int:pk>/attendance/",
+        views.StudentAttendanceView.as_view(),
+        name="attendance",
+    ),
     path("students/<int:pk>/edit/", views.StudentUpdateView.as_view(), name="edit"),
     # POST-only state changes — see StudentStatusChangeView.
     path(

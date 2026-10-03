@@ -66,27 +66,98 @@ Receipt view with Itemized Breakdown (docs/08_UI_UX.md: /receipts/<id>/).
         <tbody>
           {% if allocations %}
             {% for alloc in allocations %}
-              <tr>
+              <tr {% if alloc.is_deposit %}style="background:var(--color-bg-subtle, #f8fafc);"{% endif %}>
                 <td>
                   <strong>{{ alloc.item_name }}</strong>
+                  {% if alloc.is_deposit %}
+                    <span class="badge" style="margin-left:6px; font-size:10px;">Advance Credit</span>
+                  {% endif %}
                 </td>
-                <td style="text-align:right; font-family: var(--font-mono);">₦{{ alloc.amount }}</td>
+                <td style="text-align:right; font-family: var(--font-mono); {% if alloc.is_deposit %}color:var(--color-success, #16a34a); font-weight:600;{% endif %}">₦{{ alloc.amount }}</td>
               </tr>
             {% endfor %}
+            {% if credit_created and not has_deposit_allocation %}
+              <tr style="background:var(--color-bg-subtle, #f8fafc);">
+                <td>
+                  <strong>Deposit for Next Term's Fees (Available Credit)</strong>
+                  <span class="badge" style="margin-left:6px; font-size:10px;">Advance Credit</span>
+                </td>
+                <td style="text-align:right; font-family: var(--font-mono); color:var(--color-success, #16a34a); font-weight:600;">
+                  ₦{{ credit_created.amount }}
+                </td>
+              </tr>
+            {% endif %}
           {% else %}
-            <tr>
-              <td>{{ fee_structure.name }} ({{ fee_structure.term.name }})</td>
-              <td style="text-align:right; font-family: var(--font-mono);">₦{{ payment.amount }}</td>
-            </tr>
+            {% if credit_created and payment.amount == credit_created.amount %}
+              <tr>
+                <td>
+                  <strong>Deposit for Next Term's Fees (Available Credit)</strong>
+                  <span class="badge" style="margin-left:6px; font-size:10px;">Advance Credit</span>
+                </td>
+                <td style="text-align:right; font-family: var(--font-mono); color:var(--color-success, #16a34a); font-weight:600;">
+                  ₦{{ payment.amount }}
+                </td>
+              </tr>
+            {% else %}
+              <tr>
+                <td>{{ fee_structure.name }} ({{ fee_structure.term.name }})</td>
+                <td style="text-align:right; font-family: var(--font-mono);">₦{{ payment.total_settled }}</td>
+              </tr>
+              {% if credit_created and not has_deposit_allocation %}
+                <tr style="background:var(--color-bg-subtle, #f8fafc);">
+                  <td>
+                    <strong>Deposit for Next Term's Fees (Available Credit)</strong>
+                    <span class="badge" style="margin-left:6px; font-size:10px;">Advance Credit</span>
+                  </td>
+                  <td style="text-align:right; font-family: var(--font-mono); color:var(--color-success, #16a34a); font-weight:600;">
+                    ₦{{ credit_created.amount }}
+                  </td>
+                </tr>
+              {% endif %}
+            {% endif %}
           {% endif %}
         </tbody>
         <tfoot>
-          <tr style="border-top: 2px solid var(--color-border);">
-            <th scope="row" style="text-align:left;">Total Amount Paid:</th>
-            <td style="text-align:right; font-family: var(--font-mono); font-size: 1.1rem; color: var(--color-primary);">
-              <strong>₦{{ payment.amount }}</strong>
-            </td>
-          </tr>
+          {% if payment.credit_applied and payment.credit_applied > 0 and payment.amount > 0 %}
+            <tr style="border-top: 2px solid var(--color-border); background: var(--color-bg-subtle, #f8fafc);">
+              <th scope="row" style="text-align:left; font-size:var(--text-xs);">{{ payment.get_method_display }} Payment:</th>
+              <td style="text-align:right; font-family: var(--font-mono); font-size:var(--text-xs); font-weight:600;">
+                ₦{{ payment.amount }}
+              </td>
+            </tr>
+            <tr style="background: var(--color-bg-subtle, #f8fafc);">
+              <th scope="row" style="text-align:left; font-size:var(--text-xs);">Applied Student Credit:</th>
+              <td style="text-align:right; font-family: var(--font-mono); font-size:var(--text-xs); font-weight:600; color:var(--color-primary-700, #4338ca);">
+                ₦{{ payment.credit_applied }}
+              </td>
+            </tr>
+            <tr style="border-top: 1px solid var(--color-border);">
+              <th scope="row" style="text-align:left;">Total Amount Settled:</th>
+              <td style="text-align:right; font-family: var(--font-mono); font-size: 1.1rem; color: var(--color-primary);">
+                <strong>₦{{ payment.total_settled }}</strong>
+              </td>
+            </tr>
+          {% elif payment.credit_applied and payment.credit_applied > 0 %}
+            <tr style="border-top: 2px solid var(--color-border); background: var(--color-bg-subtle, #f8fafc);">
+              <th scope="row" style="text-align:left; font-size:var(--text-xs);">Applied Student Credit:</th>
+              <td style="text-align:right; font-family: var(--font-mono); font-size:var(--text-xs); font-weight:600; color:var(--color-primary-700, #4338ca);">
+                ₦{{ payment.credit_applied }}
+              </td>
+            </tr>
+            <tr style="border-top: 1px solid var(--color-border);">
+              <th scope="row" style="text-align:left;">Total Amount Settled:</th>
+              <td style="text-align:right; font-family: var(--font-mono); font-size: 1.1rem; color: var(--color-primary);">
+                <strong>₦{{ payment.total_settled }}</strong>
+              </td>
+            </tr>
+          {% else %}
+            <tr style="border-top: 2px solid var(--color-border);">
+              <th scope="row" style="text-align:left;">Total Amount Settled:</th>
+              <td style="text-align:right; font-family: var(--font-mono); font-size: 1.1rem; color: var(--color-primary);">
+                <strong>₦{{ payment.total_settled }}</strong>
+              </td>
+            </tr>
+          {% endif %}
           {% if remaining_package_balance is not None %}
             <tr style="background: var(--color-bg-subtle, #f8fafc);">
               <th scope="row" style="text-align:left; font-size:var(--text-xs);">Remaining Outstanding:</th>
@@ -95,12 +166,26 @@ Receipt view with Itemized Breakdown (docs/08_UI_UX.md: /receipts/<id>/).
               </td>
             </tr>
           {% endif %}
+          {% if student.credit_balance %}
+            <tr style="background: var(--color-bg-subtle, #f8fafc);">
+              <th scope="row" style="text-align:left; font-size:var(--text-xs);">Available Credit Balance:</th>
+              <td style="text-align:right; font-family: var(--font-mono); font-size:var(--text-xs); font-weight:700; color: var(--color-success, #16a34a);">
+                ₦{{ student.credit_balance }}
+              </td>
+            </tr>
+          {% endif %}
         </tfoot>
       </table>
     </div>
 
     <div style="margin-top:var(--space-3); font-size:var(--text-xs);">
-      <p style="margin:0;"><strong>Payment Method:</strong> {{ payment.get_method_display }}</p>
+      {% if payment.method == 'credit' or payment.amount == 0 %}
+        <p style="margin:0;"><strong>Payment Method:</strong> ⚡ Student Credit</p>
+      {% elif payment.credit_applied and payment.credit_applied > 0 %}
+        <p style="margin:0;"><strong>Payment Method:</strong> {{ payment.get_method_display }} + ⚡ Student Credit (₦{{ payment.credit_applied }})</p>
+      {% else %}
+        <p style="margin:0;"><strong>Payment Method:</strong> {{ payment.get_method_display }}</p>
+      {% endif %}
       <p style="margin:0;"><strong>Fee Package:</strong> {{ fee_structure.name }} ({{ fee_structure.term.name }})</p>
       <p style="margin:0;"><strong>Cashier / Issuer:</strong> {{ receipt.issued_by.full_name|default:"Authorized Staff" }}</p>
       {% if payment.status == 'reversed' %}

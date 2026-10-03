@@ -163,15 +163,28 @@ class StudentFeeAssignment(TenantScopedModel):
     def total_paid(self):
         """Active payments plus applied credit on this fee assignment."""
         active_payments = self.payments.filter(status=PaymentStatus.ACTIVE)
-        paid = active_payments.order_by().aggregate(total=models.Sum("amount"))[
-            "total"
-        ] or Decimal("0.00")
-        applied_credits = abs(
+        total_settled_sum = sum(
+            (p.total_settled for p in active_payments), Decimal("0.00")
+        )
+        credited_back = active_payments.order_by().aggregate(
+            total=models.Sum("credit_transactions__amount")
+        )["total"] or Decimal("0.00")
+        active_credit_used = sum(
+            (
+                p.credit_applied
+                if (p.credit_applied and p.credit_applied > Decimal("0.00"))
+                else (p.amount if p.method == PaymentMethod.CREDIT else Decimal("0.00"))
+                for p in active_payments
+            ),
+            Decimal("0.00"),
+        )
+        applied_credits_net = abs(
             self.applied_credits.order_by().aggregate(total=models.Sum("amount"))[
                 "total"
             ] or Decimal("0.00")
         )
-        return paid + applied_credits
+        legacy_applied_credits = max(Decimal("0.00"), applied_credits_net - active_credit_used)
+        return (total_settled_sum - credited_back) + legacy_applied_credits
 
     @property
     def raw_balance(self):
@@ -183,17 +196,7 @@ class StudentFeeAssignment(TenantScopedModel):
         Reversed payments are excluded — a reversal means the money is not
         counted against the debt, so the balance goes back up.
         """
-        active_payments = self.payments.filter(status=PaymentStatus.ACTIVE)
-        paid = active_payments.order_by().aggregate(total=models.Sum("amount"))[
-            "total"
-        ] or Decimal("0.00")
-        credited_back = active_payments.order_by().aggregate(
-            total=models.Sum("credit_transactions__amount")
-        )["total"] or Decimal("0.00")
-        applied_credits = self.applied_credits.order_by().aggregate(
-            total=models.Sum("amount")
-        )["total"] or Decimal("0.00")
-        return self.amount_due - (paid - credited_back - applied_credits)
+        return self.amount_due - self.total_paid
 
     @property
     def outstanding_balance(self):
@@ -202,6 +205,11 @@ class StudentFeeAssignment(TenantScopedModel):
         Clamped at 0.00. Read-only helper; the ledger remains the audit trail.
         """
         return max(Decimal("0.00"), self.raw_balance)
+
+    @property
+    def has_payments(self):
+        """Returns True if active payments exist or applied credit was used."""
+        return self.total_paid > Decimal("0.00")
 
     @property
     def is_paid_in_full(self):
@@ -232,15 +240,37 @@ class StudentFeeAssignment(TenantScopedModel):
             if a["student_fee_item_id"]:
                 student_item_paid_map[a["student_fee_item_id"]] = student_item_paid_map.get(a["student_fee_item_id"], Decimal("0.00")) + (a["total_paid"] or Decimal("0.00"))
 
-        applied_credits = abs(
+        deposit_allocated = (
+            PaymentItemAllocation.objects.filter(
+                payment__in=active_payments,
+                fee_item__isnull=True,
+                student_fee_item__isnull=True,
+            )
+            .order_by()
+            .aggregate(total=models.Sum("amount"))["total"]
+            or Decimal("0.00")
+        )
+
+        credit_payments = (
+            active_payments.filter(method=PaymentMethod.CREDIT)
+            .order_by()
+            .aggregate(total=models.Sum("amount"))["total"]
+            or Decimal("0.00")
+        )
+        applied_credits_total = abs(
             self.applied_credits.order_by().aggregate(total=models.Sum("amount"))["total"]
             or Decimal("0.00")
         )
-        total_allocated = sum(fee_item_paid_map.values(), Decimal("0.00")) + sum(student_item_paid_map.values(), Decimal("0.00"))
+        legacy_applied_credits = max(Decimal("0.00"), applied_credits_total - credit_payments)
+        total_allocated = (
+            sum(fee_item_paid_map.values(), Decimal("0.00"))
+            + sum(student_item_paid_map.values(), Decimal("0.00"))
+            + deposit_allocated
+        )
         total_active_paid = (
             active_payments.order_by().aggregate(t=models.Sum("amount"))["t"]
             or Decimal("0.00")
-        ) + applied_credits
+        ) + legacy_applied_credits
         unallocated_paid = max(Decimal("0.00"), total_active_paid - total_allocated)
 
         breakdown = []
@@ -362,6 +392,7 @@ class PaymentMethod(models.TextChoices):
     CARD = "card", "Card"
     POS = "pos", "POS"
     CHEQUE = "cheque", "Cheque"
+    CREDIT = "credit", "Student Credit"
     OTHER = "other", "Other"
 
 
@@ -375,6 +406,9 @@ class Payment(TenantScopedModel):
         StudentFeeAssignment, on_delete=models.PROTECT, related_name="payments"
     )
     amount = models.DecimalField(max_digits=12, decimal_places=2)
+    credit_applied = models.DecimalField(
+        max_digits=12, decimal_places=2, default=Decimal("0.00")
+    )
     payment_date = models.DateField()
     method = models.CharField(max_length=10, choices=PaymentMethod.choices)
     status = models.CharField(
@@ -393,6 +427,11 @@ class Payment(TenantScopedModel):
     class Meta:
         db_table = "payments"
         ordering = ("-payment_date", "-created_at")
+
+    @property
+    def total_settled(self):
+        """Total debt settled by this transaction: external cash/bank payment + credit applied."""
+        return self.amount + (self.credit_applied or Decimal("0.00"))
 
     def __str__(self):
         return f"{self.amount} on {self.payment_date}"
@@ -421,12 +460,17 @@ class PaymentItemAllocation(TenantScopedModel):
         ordering = ("id",)
 
     @property
+    def is_deposit(self):
+        """Returns True if this allocation represents an advance deposit for future terms."""
+        return self.fee_item_id is None and self.student_fee_item_id is None
+
+    @property
     def item_name(self):
         if self.student_fee_item:
             return self.student_fee_item.name
         if self.fee_item:
             return self.fee_item.name
-        return "Fee Item"
+        return "Deposit for Next Term (Advance Credit)"
 
     def __str__(self):
         return f"{self.item_name}: {self.amount} for Payment #{self.payment_id}"

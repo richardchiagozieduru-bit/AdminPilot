@@ -40,6 +40,17 @@ Reports Hub (docs/03_Views_and_Endpoints.md: /reports/).
         <a class="btn btn--primary" href="{% url 'reports:class_summary' %}">View Class Summary</a>
       </div>
     </div>
+
+    <div class="card" style="border: 1.5px solid var(--color-primary, #2563eb);">
+      <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+        <h2 class="card__title" style="margin:0;">Fee Intelligence</h2>
+        <span class="badge" style="background:#e0e7ff; color:#3730a3; font-weight:600; font-size:11px;">⚡ Item-Level</span>
+      </div>
+      <p style="margin-top:var(--space-2);">Filter and track payments by specific fee items (Tuition, Books, Uniforms, PAAP) and export defaulter lists.</p>
+      <div style="margin-top:var(--space-4);">
+        <a class="btn btn--primary" href="{% url 'reports:fee_intelligence' %}">Launch Fee Intelligence</a>
+      </div>
+    </div>
   </div>
 
   {% if can_export %}

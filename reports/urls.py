@@ -55,6 +55,17 @@ urlpatterns = [
         views.ClassSummaryExportView.as_view(),
         name="class_summary_export",
     ),
+    # Fee Intelligence & Payment Analytics
+    path(
+        "reports/fee-intelligence/",
+        views.FeeIntelligenceReportView.as_view(),
+        name="fee_intelligence",
+    ),
+    path(
+        "reports/fee-intelligence/export/",
+        views.FeeIntelligenceExportView.as_view(),
+        name="fee_intelligence_export",
+    ),
     # Data Export (Owner only)
     path("export/students/", views.StudentExportView.as_view(), name="export_students"),
     path("export/payments/", views.PaymentExportView.as_view(), name="export_payments"),

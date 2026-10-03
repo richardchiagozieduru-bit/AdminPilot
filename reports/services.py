@@ -286,3 +286,199 @@ def get_class_summary_data(
         "grand_collected": grand_collected,
         "grand_outstanding": grand_outstanding,
     }
+
+
+# --------------------------------------------------------------------------- #
+# 5. Fee Intelligence & Payment Analytics
+# --------------------------------------------------------------------------- #
+def get_fee_intelligence_data(
+    *,
+    institution_id,
+    fee_item_name=None,
+    class_id=None,
+    session_id=None,
+    term_id=None,
+    status_filter="all",
+    date_from=None,
+    date_to=None,
+    method=None,
+):
+    """Calculates item-level billing, collection, and outstanding metrics for a specific fee component.
+    
+    Powers the Fee Intelligence & Item Analytics report.
+    """
+    from billing.models import (
+        FeeStructureItem,
+        PaymentItemAllocation,
+        PaymentStatus,
+        StudentFeeAssignment,
+        StudentFeeItem,
+    )
+
+    # 1. Discover all distinct fee item names across the school
+    fs_items = (
+        FeeStructureItem.unscoped.filter(fee_structure__institution_id=institution_id)
+        .values_list("name", flat=True)
+        .distinct()
+    )
+    s_items = (
+        StudentFeeItem.unscoped.filter(institution_id=institution_id)
+        .values_list("name", flat=True)
+        .distinct()
+    )
+    distinct_item_names = sorted(list(set(list(fs_items) + list(s_items))))
+
+    selected_item_name = fee_item_name
+    if not selected_item_name and distinct_item_names:
+        # Default to first fee item (e.g. Tuition)
+        selected_item_name = distinct_item_names[0]
+
+    assignments_qs = (
+        StudentFeeAssignment.unscoped.filter(institution_id=institution_id)
+        .select_related(
+            "student",
+            "fee_structure",
+            "fee_structure__klass",
+            "fee_structure__term",
+            "fee_structure__session",
+        )
+    )
+    if class_id:
+        assignments_qs = assignments_qs.filter(fee_structure__klass_id=class_id)
+    if term_id:
+        assignments_qs = assignments_qs.filter(fee_structure__term_id=term_id)
+    if session_id:
+        assignments_qs = assignments_qs.filter(fee_structure__session_id=session_id)
+
+    student_rows = []
+    class_summary_map = {}
+
+    overall_billed = Decimal("0.00")
+    overall_collected = Decimal("0.00")
+    overall_outstanding = Decimal("0.00")
+    overall_paid_count = 0
+    overall_partial_count = 0
+    overall_unpaid_count = 0
+    overall_total_students = 0
+
+    for assignment in assignments_qs:
+        breakdown = assignment.get_item_breakdown()
+        target_item = None
+        for item_data in breakdown:
+            if item_data.get("name", "").strip().lower() == (selected_item_name or "").strip().lower():
+                target_item = item_data
+                break
+
+        if not target_item:
+            continue
+
+        item_billed = target_item.get("billed") or target_item.get("amount") or Decimal("0.00")
+        item_paid = target_item.get("paid") or Decimal("0.00")
+        item_remaining = target_item.get("remaining") or Decimal("0.00")
+        item_status = target_item.get("status", "unpaid")  # 'paid', 'partial', 'unpaid'
+
+        klass = assignment.fee_structure.klass
+        k_id = klass.pk
+
+        # Track class summaries
+        if k_id not in class_summary_map:
+            class_summary_map[k_id] = {
+                "class": klass,
+                "student_count": 0,
+                "billed": Decimal("0.00"),
+                "collected": Decimal("0.00"),
+                "outstanding": Decimal("0.00"),
+                "paid_count": 0,
+            }
+        class_summary_map[k_id]["student_count"] += 1
+        class_summary_map[k_id]["billed"] += item_billed
+        class_summary_map[k_id]["collected"] += item_paid
+        class_summary_map[k_id]["outstanding"] += item_remaining
+        if item_status == "paid":
+            class_summary_map[k_id]["paid_count"] += 1
+
+        overall_total_students += 1
+        overall_billed += item_billed
+        overall_collected += item_paid
+        overall_outstanding += item_remaining
+        if item_status == "paid":
+            overall_paid_count += 1
+        elif item_status == "partial":
+            overall_partial_count += 1
+        else:
+            overall_unpaid_count += 1
+
+        # Check status filter
+        if status_filter == "paid" and item_status != "paid":
+            continue
+        elif status_filter == "partial" and item_status != "partial":
+            continue
+        elif status_filter == "unpaid" and item_status != "unpaid":
+            continue
+
+        # Find latest payment for this assignment
+        active_payments = assignment.payments.filter(status=PaymentStatus.ACTIVE)
+        if method:
+            active_payments = active_payments.filter(method=method)
+        if date_from:
+            active_payments = active_payments.filter(payment_date__gte=date_from)
+        if date_to:
+            active_payments = active_payments.filter(payment_date__lte=date_to)
+
+        latest_payment = active_payments.order_by("-payment_date", "-created_at").first()
+
+        student_rows.append({
+            "assignment": assignment,
+            "student": assignment.student,
+            "klass": klass,
+            "fee_structure": assignment.fee_structure,
+            "item_name": selected_item_name,
+            "item_billed": item_billed,
+            "item_paid": item_paid,
+            "item_remaining": item_remaining,
+            "item_status": item_status,
+            "last_payment_date": latest_payment.payment_date if latest_payment else None,
+            "last_payment_method": latest_payment.get_method_display() if latest_payment else None,
+        })
+
+    collection_rate = (
+        round(overall_collected / overall_billed * 100, 1)
+        if overall_billed > 0
+        else 0.0
+    )
+
+    class_summaries = []
+    for c_info in sorted(
+        class_summary_map.values(), key=lambda x: (x["class"].order, x["class"].name)
+    ):
+        c_rate = (
+            round(c_info["collected"] / c_info["billed"] * 100, 1)
+            if c_info["billed"] > 0
+            else 0.0
+        )
+        c_info["collection_rate"] = c_rate
+        class_summaries.append(c_info)
+
+    student_rows.sort(
+        key=lambda r: (
+            r["klass"].order,
+            r["klass"].name,
+            r["student"].last_name,
+            r["student"].first_name,
+        )
+    )
+
+    return {
+        "distinct_item_names": distinct_item_names,
+        "selected_item_name": selected_item_name,
+        "student_rows": student_rows,
+        "class_summaries": class_summaries,
+        "total_billed": overall_billed,
+        "total_collected": overall_collected,
+        "total_outstanding": overall_outstanding,
+        "collection_rate": collection_rate,
+        "total_students": overall_total_students,
+        "paid_students": overall_paid_count,
+        "partial_students": overall_partial_count,
+        "unpaid_students": overall_unpaid_count,
+    }

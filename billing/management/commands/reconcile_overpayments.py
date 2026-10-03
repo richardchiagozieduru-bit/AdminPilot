@@ -90,6 +90,42 @@ class Command(BaseCommand):
                     total_credits_created += 1
                     total_amount_credited += excess
 
+            # Step 1b: Reconcile reversed payments that applied credit without an offsetting reversal transaction
+            from billing.models import Payment
+            reversed_payments = Payment.unscoped.filter(
+                institution_id=inst.pk,
+                status=PaymentStatus.REVERSED,
+            )
+            for r_payment in reversed_payments:
+                c_used = (
+                    r_payment.credit_applied
+                    if (r_payment.credit_applied and r_payment.credit_applied > Decimal("0.00"))
+                    else (r_payment.amount if r_payment.method == "credit" else Decimal("0.00"))
+                )
+                if c_used > Decimal("0.00") and r_payment.assignment_id:
+                    has_offset = CreditTransaction.unscoped.filter(
+                        applied_to_assignment_id=r_payment.assignment_id,
+                        amount__gt=Decimal("0.00"),
+                    ).exists()
+                    if not has_offset:
+                        self.stdout.write(
+                            self.style.SUCCESS(
+                                f"  [REVERSED CREDIT RESTORED] Payment #{r_payment.pk} | "
+                                f"Restoring ₦{c_used} credit to Assignment #{r_payment.assignment_id}"
+                            )
+                        )
+                        if not dry_run:
+                            with transaction.atomic():
+                                CreditTransaction.unscoped.create(
+                                    institution_id=inst.pk,
+                                    amount=c_used,
+                                    applied_to_assignment_id=r_payment.assignment_id,
+                                )
+                                CreditTransaction.unscoped.filter(
+                                    source_payment=r_payment,
+                                    amount=Decimal("0.00"),
+                                ).delete()
+
             # Step 2: Resynchronize student credit balances with the CreditTransaction ledger
             students = Student.objects.all()
             for student in students:

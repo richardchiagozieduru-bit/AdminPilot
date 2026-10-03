@@ -34,6 +34,7 @@ from billing.models import (
 from billing.services import (
     adjust_student_fee,
     apply_package_to_classes,
+    apply_student_credit,
     convert_structure_to_package,
     create_fee_structure,
     create_master_package,
@@ -282,11 +283,29 @@ class FeeEngineServiceTests(ApprovedSchoolTestCase):
 
             self.assertEqual(applied, Decimal("10000.00"))
             self.assertEqual(created, Decimal("0.00"))
+            self.assertEqual(p2.amount, Decimal("15000.00"))
+            self.assertEqual(p2.credit_applied, Decimal("10000.00"))
+            self.assertEqual(p2.total_settled, Decimal("25000.00"))
+            self.assertEqual(p2.method, PaymentMethod.POS)
+
             a2.refresh_from_db()
             self.assertEqual(a2.outstanding_balance, Decimal("0.00"))
 
             self.student.refresh_from_db()
             self.assertEqual(self.student.credit_balance, Decimal("0.00"))
+
+            # Reverse split-tender payment to ensure credit_applied is refunded to student credit balance
+            reverse_payment(
+                payment=p2,
+                reason="Testing reversal of split payment",
+                actor=self.owner,
+            )
+            p2.refresh_from_db()
+            self.assertEqual(p2.status, PaymentStatus.REVERSED)
+            self.student.refresh_from_db()
+            self.assertEqual(self.student.credit_balance, Decimal("10000.00"))
+            a2.refresh_from_db()
+            self.assertEqual(a2.outstanding_balance, Decimal("25000.00"))
 
     def test_reverse_payment_reverts_credit_and_status(self):
         with self.in_school():
@@ -334,6 +353,262 @@ class FeeEngineServiceTests(ApprovedSchoolTestCase):
 
             self.student.refresh_from_db()
             self.assertEqual(self.student.credit_balance, Decimal("0.00"))
+
+    def test_record_payment_with_advance_deposit_for_next_term(self):
+        with self.in_school():
+            structure = create_fee_structure(
+                institution_id=self.institution.pk,
+                name="Term 1 Fee",
+                klass=self.klass,
+                session=self.session,
+                term=self.term,
+                items=[{"name": "Tuition", "amount": Decimal("30000.00")}],
+                actor=self.owner,
+            )
+            assignment = StudentFeeAssignment.unscoped.get(
+                student=self.student, fee_structure=structure
+            )
+            # Pay 30,000 for Term 1 + 15,000 deposit for next term = 45,000 total
+            payment, receipt, applied, created = record_payment(
+                assignment=assignment,
+                amount=Decimal("45000.00"),
+                payment_date=datetime.date.today(),
+                method=PaymentMethod.TRANSFER,
+                actor=self.owner,
+                deposit_amount=Decimal("15000.00"),
+            )
+            self.assertEqual(payment.amount, Decimal("45000.00"))
+            self.assertEqual(applied, Decimal("0.00"))
+            self.assertEqual(created, Decimal("15000.00"))
+            assignment.refresh_from_db()
+            self.assertEqual(assignment.outstanding_balance, Decimal("0.00"))
+            self.assertTrue(assignment.has_payments)
+            self.student.refresh_from_db()
+            self.assertEqual(self.student.credit_balance, Decimal("15000.00"))
+
+            # Verify PaymentItemAllocation includes the advance deposit
+            deposit_alloc = payment.allocations.filter(
+                fee_item__isnull=True, student_fee_item__isnull=True
+            ).first()
+            self.assertIsNotNone(deposit_alloc)
+            self.assertEqual(deposit_alloc.amount, Decimal("15000.00"))
+            self.assertTrue(deposit_alloc.is_deposit)
+            self.assertEqual(deposit_alloc.item_name, "Deposit for Next Term (Advance Credit)")
+            self.assertEqual(
+                sum((a.amount for a in payment.allocations.all()), Decimal("0.00")),
+                payment.amount,
+            )
+
+    def test_record_deposit_when_current_assignment_cleared(self):
+        with self.in_school():
+            structure = create_fee_structure(
+                institution_id=self.institution.pk,
+                name="Term 1 Fee",
+                klass=self.klass,
+                session=self.session,
+                term=self.term,
+                items=[{"name": "Tuition", "amount": Decimal("20000.00")}],
+                actor=self.owner,
+            )
+            assignment = StudentFeeAssignment.unscoped.get(
+                student=self.student, fee_structure=structure
+            )
+            # First pay in full
+            record_payment(
+                assignment=assignment,
+                amount=Decimal("20000.00"),
+                payment_date=datetime.date.today(),
+                method=PaymentMethod.CASH,
+                actor=self.owner,
+            )
+            assignment.refresh_from_db()
+            self.assertEqual(assignment.outstanding_balance, Decimal("0.00"))
+            self.assertTrue(assignment.has_payments)
+
+            # Now make a deposit for next term on the cleared assignment
+            payment2, receipt2, applied2, created2 = record_payment(
+                assignment=assignment,
+                amount=Decimal("25000.00"),
+                payment_date=datetime.date.today(),
+                method=PaymentMethod.TRANSFER,
+                actor=self.owner,
+                deposit_amount=Decimal("25000.00"),
+            )
+            self.assertEqual(payment2.amount, Decimal("25000.00"))
+            self.assertEqual(created2, Decimal("25000.00"))
+            self.student.refresh_from_db()
+            self.assertEqual(self.student.credit_balance, Decimal("25000.00"))
+
+            # Verify deposit allocation created
+            deposit_alloc = payment2.allocations.filter(
+                fee_item__isnull=True, student_fee_item__isnull=True
+            ).first()
+            self.assertIsNotNone(deposit_alloc)
+            self.assertEqual(deposit_alloc.amount, Decimal("25000.00"))
+            self.assertEqual(
+                sum((a.amount for a in payment2.allocations.all()), Decimal("0.00")),
+                payment2.amount,
+            )
+
+    def test_apply_student_credit_creates_payment_receipt_and_allocations(self):
+        with self.in_school():
+            structure = create_fee_structure(
+                institution_id=self.institution.pk,
+                name="Second Term Package",
+                klass=self.klass,
+                session=self.session,
+                term=self.term,
+                items=[
+                    {"name": "Tuition", "amount": Decimal("50000.00")},
+                    {"name": "Development", "amount": Decimal("30000.00")},
+                ],
+                actor=self.owner,
+            )
+            assignment = StudentFeeAssignment.unscoped.get(
+                student=self.student, fee_structure=structure
+            )
+            self.student.credit_balance = Decimal("50000.00")
+            self.student.save(update_fields=["credit_balance"])
+
+            credit_tx, payment, receipt = apply_student_credit(
+                student=self.student,
+                assignment=assignment,
+                amount=Decimal("50000.00"),
+                actor=self.owner,
+            )
+
+            # 1. Credit ledger entry and updated credit balance
+            self.assertEqual(credit_tx.amount, Decimal("-50000.00"))
+            self.student.refresh_from_db()
+            self.assertEqual(self.student.credit_balance, Decimal("0.00"))
+
+            # 2. Formal Payment record created with CREDIT method
+            self.assertEqual(payment.amount, Decimal("50000.00"))
+            self.assertEqual(payment.method, PaymentMethod.CREDIT)
+            self.assertEqual(payment.status, PaymentStatus.ACTIVE)
+            self.assertEqual(payment.assignment, assignment)
+
+            # 3. Receipt generated
+            self.assertIsNotNone(receipt)
+            self.assertEqual(receipt.payment, payment)
+            self.assertTrue(receipt.receipt_number.startswith(self.institution.code))
+
+            # 4. Balances updated without double counting
+            assignment.refresh_from_db()
+            self.assertEqual(assignment.total_paid, Decimal("50000.00"))
+            self.assertEqual(assignment.outstanding_balance, Decimal("30000.00"))
+            self.assertTrue(assignment.has_payments)
+
+            # 5. Line items allocated
+            breakdown = assignment.get_item_breakdown()
+            tuition_item = next(i for i in breakdown if i["name"] == "Tuition")
+            dev_item = next(i for i in breakdown if i["name"] == "Development")
+            self.assertEqual(tuition_item["status"], "paid")
+            self.assertEqual(dev_item["status"], "unpaid")
+
+    def test_credit_payment_reversal_restores_credit_balance(self):
+        with self.in_school():
+            structure = create_fee_structure(
+                institution_id=self.institution.pk,
+                name="Second Term Package",
+                klass=self.klass,
+                session=self.session,
+                term=self.term,
+                items=[{"name": "Tuition", "amount": Decimal("50000.00")}],
+                actor=self.owner,
+            )
+            assignment = StudentFeeAssignment.unscoped.get(
+                student=self.student, fee_structure=structure
+            )
+            self.student.credit_balance = Decimal("50000.00")
+            self.student.save(update_fields=["credit_balance"])
+
+            credit_tx, payment, receipt = apply_student_credit(
+                student=self.student,
+                assignment=assignment,
+                amount=Decimal("50000.00"),
+                actor=self.owner,
+            )
+            self.student.refresh_from_db()
+            self.assertEqual(self.student.credit_balance, Decimal("0.00"))
+
+            # Reverse the payment
+            reverse_payment(
+                payment=payment,
+                reason="Applied to wrong term",
+                actor=self.owner,
+            )
+
+            payment.refresh_from_db()
+            self.assertEqual(payment.status, PaymentStatus.REVERSED)
+
+            # Credit should be refunded back to the student
+            self.student.refresh_from_db()
+            self.assertEqual(self.student.credit_balance, Decimal("50000.00"))
+            assignment.refresh_from_db()
+            self.assertEqual(assignment.outstanding_balance, Decimal("50000.00"))
+            self.assertFalse(assignment.is_paid_in_full)
+
+    def test_record_payment_credit_only_reversal_restores_credit_and_outstanding_balance(self):
+        """When a fee is settled with credit via record_payment (amount=0, credit_applied=50000),
+        reversal must restore the student's credit balance and reset outstanding balance."""
+        with self.in_school():
+            structure = create_fee_structure(
+                institution_id=self.institution.pk,
+                name="Second Term Package",
+                klass=self.klass,
+                session=self.session,
+                term=self.term,
+                items=[{"name": "Tuition", "amount": Decimal("50000.00")}],
+                actor=self.owner,
+            )
+            assignment = StudentFeeAssignment.unscoped.get(
+                student=self.student, fee_structure=structure
+            )
+            self.student.credit_balance = Decimal("50000.00")
+            self.student.save(update_fields=["credit_balance"])
+
+            # Record payment with credit applied and 0 external cash
+            payment, receipt, applied, _ = record_payment(
+                assignment=assignment,
+                amount=Decimal("0.00"),
+                payment_date=datetime.date.today(),
+                method=PaymentMethod.CREDIT,
+                actor=self.owner,
+                apply_credit=True,
+            )
+
+            self.assertEqual(applied, Decimal("50000.00"))
+            self.assertEqual(payment.total_settled, Decimal("50000.00"))
+            self.assertEqual(payment.amount, Decimal("0.00"))
+            self.assertEqual(payment.credit_applied, Decimal("50000.00"))
+
+            assignment.refresh_from_db()
+            self.assertEqual(assignment.outstanding_balance, Decimal("0.00"))
+            self.assertTrue(assignment.is_paid_in_full)
+
+            self.student.refresh_from_db()
+            self.assertEqual(self.student.credit_balance, Decimal("0.00"))
+
+            # Reverse the payment
+            reverse_payment(
+                payment=payment,
+                reason="Reversing credit payment recorded via form",
+                actor=self.owner,
+            )
+
+            payment.refresh_from_db()
+            self.assertEqual(payment.status, PaymentStatus.REVERSED)
+            self.assertEqual(payment.total_settled, Decimal("50000.00"))
+
+            # Student credit balance restored
+            self.student.refresh_from_db()
+            self.assertEqual(self.student.credit_balance, Decimal("50000.00"))
+
+            # Fee assignment outstanding balance restored and NOT paid in full
+            assignment.refresh_from_db()
+            self.assertEqual(assignment.outstanding_balance, Decimal("50000.00"))
+            self.assertFalse(assignment.is_paid_in_full)
 
 
 class BillingViewsAndPermissionsTests(ApprovedSchoolTestCase):
@@ -833,6 +1108,268 @@ class MasterFeePackageAndCustomReceiptTests(ApprovedSchoolTestCase):
             total_billed = sum(Decimal(str(b["billed"])) for b in breakdown)
             self.assertEqual(total_billed, Decimal("25000.00"))
 
+    def test_fee_assignment_customize_forbidden_when_payments_exist(self):
+        """Verify customizing a fee assignment is blocked if payments exist."""
+        with self.in_school():
+            struct = create_fee_structure(
+                institution_id=self.school.pk,
+                name="Primary 1 Fees",
+                klass=self.klass_a,
+                session=self.session,
+                term=self.term,
+                items=[{"name": "Tuition", "amount": Decimal("20000.00"), "is_mandatory": True}],
+                actor=self.owner,
+            )
+            assignment = StudentFeeAssignment.objects.get(fee_structure=struct, student=self.student_a)
+            self.sign_in_owner()
 
+            # Before payment, customization page loads fine (200)
+            url = reverse("billing:fee_assignment_customize", kwargs={"pk": assignment.pk})
+            resp = self.client.get(url)
+            self.assertEqual(resp.status_code, 200)
 
+            # Record a payment
+            record_payment(
+                assignment=assignment,
+                amount=Decimal("10000.00"),
+                payment_date=datetime.date.today(),
+                method=PaymentMethod.CASH,
+                actor=self.owner,
+            )
+
+            # After payment, customization should redirect to student payment history with error
+            resp_after = self.client.get(url)
+            self.assertEqual(resp_after.status_code, 302)
+            self.assertIn(reverse("students:payments", kwargs={"pk": self.student_a.pk}), resp_after.url)
+
+    def test_credit_apply_view_reflects_in_student_payments_and_general_list(self):
+        """Applying credit creates a formal Payment that displays in the student profile and /payments/ list."""
+        with self.in_school():
+            self.sign_in_owner()
+            self.student_a.credit_balance = Decimal("15000.00")
+            self.student_a.save(update_fields=["credit_balance"])
+
+            struct = create_fee_structure(
+                institution_id=self.school.pk,
+                name="JSS-1 First Term Package",
+                klass=self.klass_a,
+                session=self.session,
+                term=self.term,
+                items=[{"name": "Tuition", "amount": Decimal("30000.00"), "is_mandatory": True}],
+                actor=self.owner,
+            )
+            assignment = StudentFeeAssignment.objects.get(fee_structure=struct, student=self.student_a)
+
+            # Apply credit via the POST endpoint
+            url = reverse("billing:student_credit_apply", kwargs={"pk": self.student_a.pk})
+            resp = self.client.post(url, {
+                "assignment": assignment.pk,
+                "amount": "15000.00",
+            }, follow=True)
+            self.assertEqual(resp.status_code, 200)
+
+            # Payment record must exist
+            payment = Payment.objects.filter(assignment=assignment, method=PaymentMethod.CREDIT).first()
+            self.assertIsNotNone(payment)
+            self.assertEqual(payment.amount, Decimal("15000.00"))
+
+            # Check student payments view renders Term, Student Credit, and Receipt
+            student_payments_url = reverse("students:payments", kwargs={"pk": self.student_a.pk})
+            s_resp = self.client.get(student_payments_url)
+            self.assertEqual(s_resp.status_code, 200)
+            self.assertContains(s_resp, "Student Credit")
+            self.assertContains(s_resp, self.term.name)
+            self.assertContains(s_resp, payment.receipt.receipt_number)
+
+            # Check general payments list (/payments/) renders Term and Student Credit
+            list_url = reverse("billing:payment_list")
+            l_resp = self.client.get(list_url)
+            self.assertEqual(l_resp.status_code, 200)
+            self.assertContains(l_resp, "Student Credit")
+            self.assertContains(l_resp, self.term.name)
+            self.assertContains(l_resp, payment.receipt.receipt_number)
+
+    def test_split_tender_payment_and_receipt_rendering(self):
+        """Split-tender payment (e.g. Cash + Credit) renders unified tender breakdown in payment detail and receipt."""
+        with self.in_school():
+            self.sign_in_owner()
+            self.student_a.credit_balance = Decimal("10000.00")
+            self.student_a.save(update_fields=["credit_balance"])
+
+            struct = create_fee_structure(
+                institution_id=self.school.pk,
+                name="First Term Comprehensive Fee",
+                klass=self.klass_a,
+                session=self.session,
+                term=self.term,
+                items=[{"name": "Tuition", "amount": Decimal("35000.00"), "is_mandatory": True}],
+                actor=self.owner,
+            )
+            assignment = StudentFeeAssignment.objects.get(fee_structure=struct, student=self.student_a)
+
+            # Record split tender payment: 25,000 cash + 10,000 credit
+            payment, receipt, applied, _ = record_payment(
+                assignment=assignment,
+                amount=Decimal("25000.00"),
+                payment_date=datetime.date.today(),
+                method=PaymentMethod.TRANSFER,
+                actor=self.owner,
+                apply_credit=True,
+            )
+            self.assertEqual(applied, Decimal("10000.00"))
+            self.assertEqual(payment.total_settled, Decimal("35000.00"))
+
+            # Check payment detail view
+            pay_url = reverse("billing:payment_detail", kwargs={"pk": payment.pk})
+            p_resp = self.client.get(pay_url)
+            self.assertEqual(p_resp.status_code, 200)
+            self.assertContains(p_resp, "35000.00")
+            self.assertContains(p_resp, "Tender Breakdown")
+            self.assertContains(p_resp, "25000.00")
+            self.assertContains(p_resp, "10000.00")
+
+            # Check receipt detail view
+            rec_url = reverse("billing:receipt_detail", kwargs={"pk": receipt.pk})
+            r_resp = self.client.get(rec_url)
+            self.assertEqual(r_resp.status_code, 200)
+            self.assertContains(r_resp, "35000.00")
+            self.assertContains(r_resp, "Applied Student Credit")
+            self.assertContains(r_resp, "10000.00")
+
+    def test_student_detail_rendering_after_credit_payment_reversal(self):
+        """Reversed credit payment displays settled amount, proper method badge (⚡ Student Credit),
+        and the fee package displays outstanding balance instead of Paid in Full."""
+        with self.in_school():
+            self.sign_in_owner()
+            self.student_a.credit_balance = Decimal("20000.00")
+            self.student_a.save(update_fields=["credit_balance"])
+
+            struct = create_fee_structure(
+                institution_id=self.school.pk,
+                name="Second Term Senior Package",
+                klass=self.klass_a,
+                session=self.session,
+                term=self.term,
+                items=[{"name": "Tuition", "amount": Decimal("20000.00"), "is_mandatory": True}],
+                actor=self.owner,
+            )
+            assignment = StudentFeeAssignment.objects.get(fee_structure=struct, student=self.student_a)
+
+            # Record pure credit payment of 20,000 via record_payment
+            payment, receipt, applied, _ = record_payment(
+                assignment=assignment,
+                amount=Decimal("0.00"),
+                payment_date=datetime.date.today(),
+                method=PaymentMethod.CREDIT,
+                actor=self.owner,
+                apply_credit=True,
+            )
+
+            # Reverse the payment
+            reverse_payment(
+                payment=payment,
+                reason="Wrong fee package selected",
+                actor=self.owner,
+            )
+
+            # Check student payments tab
+            student_payments_url = reverse("students:payments", kwargs={"pk": self.student_a.pk})
+            resp = self.client.get(student_payments_url)
+            self.assertEqual(resp.status_code, 200)
+
+            # Method must show ⚡ Student Credit without "+ ⚡ Credit"
+            self.assertContains(resp, "⚡ Student Credit")
+            self.assertNotContains(resp, "+ ⚡ Credit")
+
+            # Fee assignment must show outstanding balance and NOT Paid in Full
+            self.assertNotContains(resp, "Paid in Full")
+
+    def test_student_payments_view_self_heals_unreconciled_reversed_payment(self):
+        """If a payment was previously reversed without restoring credit or offsetting the fee assignment,
+        visiting the student payments view self-heals both the student credit balance and fee assignment balance."""
+        with self.in_school():
+            self.sign_in_owner()
+            self.student_a.credit_balance = Decimal("20000.00")
+            self.student_a.save(update_fields=["credit_balance"])
+
+            struct = create_fee_structure(
+                institution_id=self.school.pk,
+                name="Second Term Senior Package",
+                klass=self.klass_a,
+                session=self.session,
+                term=self.term,
+                items=[{"name": "Tuition", "amount": Decimal("20000.00"), "is_mandatory": True}],
+                actor=self.owner,
+            )
+            assignment = StudentFeeAssignment.objects.get(fee_structure=struct, student=self.student_a)
+
+            # Record pure credit payment of 20,000 via record_payment
+            payment, receipt, applied, _ = record_payment(
+                assignment=assignment,
+                amount=Decimal("0.00"),
+                payment_date=datetime.date.today(),
+                method=PaymentMethod.CREDIT,
+                actor=self.owner,
+                apply_credit=True,
+            )
+
+            # Manually simulate the pre-fix state: payment is marked reversed, but credit was NOT refunded
+            # and no offsetting CreditTransaction was created
+            payment.status = PaymentStatus.REVERSED
+            payment.save(update_fields=["status"])
+            self.student_a.refresh_from_db()
+            self.assertEqual(self.student_a.credit_balance, Decimal("0.00"))
+
+            # Now visit the student payments view
+            student_payments_url = reverse("students:payments", kwargs={"pk": self.student_a.pk})
+            resp = self.client.get(student_payments_url)
+            self.assertEqual(resp.status_code, 200)
+
+            # Self-heal must have restored student credit balance to 20,000
+            self.student_a.refresh_from_db()
+            self.assertEqual(self.student_a.credit_balance, Decimal("20000.00"))
+            self.assertContains(resp, "20000.00")
+
+            # Self-heal must have reset the fee assignment so it is NOT Paid in Full
+            assignment.refresh_from_db()
+            self.assertEqual(assignment.outstanding_balance, Decimal("20000.00"))
+            self.assertFalse(assignment.is_paid_in_full)
+            self.assertNotContains(resp, "Paid in Full")
+
+    def test_receipt_detail_rendering_credit_payment(self):
+        """Receipt detail page renders pure credit payment as ⚡ Student Credit without cash label."""
+        with self.in_school():
+            self.sign_in_owner()
+            self.student_a.credit_balance = Decimal("15000.00")
+            self.student_a.save(update_fields=["credit_balance"])
+
+            struct = create_fee_structure(
+                institution_id=self.school.pk,
+                name="Third Term Fee Package",
+                klass=self.klass_a,
+                session=self.session,
+                term=self.term,
+                items=[{"name": "Tuition", "amount": Decimal("15000.00"), "is_mandatory": True}],
+                actor=self.owner,
+            )
+            assignment = StudentFeeAssignment.objects.get(fee_structure=struct, student=self.student_a)
+
+            payment, receipt, applied, _ = record_payment(
+                assignment=assignment,
+                amount=Decimal("0.00"),
+                payment_date=datetime.date.today(),
+                method=PaymentMethod.CASH,  # Even if cash was initially passed
+                actor=self.owner,
+                apply_credit=True,
+            )
+
+            # Receipt URL
+            receipt_url = reverse("billing:receipt_detail", kwargs={"pk": receipt.pk})
+            resp = self.client.get(receipt_url)
+            self.assertEqual(resp.status_code, 200)
+
+            # Should contain ⚡ Student Credit and not 'Cash + Student Credit'
+            self.assertContains(resp, "⚡ Student Credit")
+            self.assertNotContains(resp, "Cash +")
+            self.assertContains(resp, "15000.00")
 

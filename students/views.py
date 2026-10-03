@@ -311,7 +311,49 @@ class StudentPaymentsView(StudentProfileMixin):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        from billing.models import Payment, StudentFeeAssignment
+        from decimal import Decimal
+        from billing.models import (
+            Payment,
+            StudentFeeAssignment,
+            CreditTransaction,
+            PaymentStatus,
+            PaymentMethod,
+        )
+
+        # Self-heal: reconcile any reversed payment that used credit but was reversed before offsetting logic existed
+        reversed_pmts = Payment.unscoped.filter(
+            assignment__student=self.object,
+            status=PaymentStatus.REVERSED,
+        )
+        needs_refresh = False
+        for pmt in reversed_pmts:
+            c_used = (
+                pmt.credit_applied
+                if (pmt.credit_applied and pmt.credit_applied > Decimal("0.00"))
+                else (pmt.amount if pmt.method == PaymentMethod.CREDIT else Decimal("0.00"))
+            )
+            if c_used > Decimal("0.00") and pmt.assignment_id:
+                has_offset = CreditTransaction.unscoped.filter(
+                    applied_to_assignment_id=pmt.assignment_id,
+                    amount__gt=Decimal("0.00"),
+                ).exists()
+                if not has_offset:
+                    CreditTransaction.unscoped.create(
+                        institution_id=pmt.institution_id,
+                        amount=c_used,
+                        applied_to_assignment_id=pmt.assignment_id,
+                    )
+                    CreditTransaction.unscoped.filter(
+                        source_payment=pmt,
+                        amount=Decimal("0.00"),
+                    ).delete()
+                    self.object.credit_balance = (self.object.credit_balance or Decimal("0.00")) + c_used
+                    self.object.save(update_fields=["credit_balance"])
+                    needs_refresh = True
+
+        if needs_refresh:
+            self.object.refresh_from_db(fields=["credit_balance"])
+            context["student"] = self.object
 
         context["fee_assignments"] = (
             StudentFeeAssignment.unscoped.filter(student=self.object)
@@ -324,6 +366,8 @@ class StudentPaymentsView(StudentProfileMixin):
             )
             .select_related(
                 "assignment__fee_structure",
+                "assignment__fee_structure__term",
+                "assignment__fee_structure__session",
                 "receipt",
                 "recorded_by",
             )
@@ -343,6 +387,74 @@ class StudentTimelineView(StudentProfileMixin):
         from .services import get_student_timeline
 
         context["timeline_events"] = get_student_timeline(self.object)
+        return context
+
+
+class StudentAttendanceView(StudentProfileMixin):
+    """`/students/<id>/attendance/` — Attendance History & Metrics tab."""
+
+    active_tab = "attendance"
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        from academic.models import Term
+        from attendance.models import AttendanceRecord, AttendanceStatus
+
+        all_terms = (
+            Term.objects.filter(institution_id=self.request.institution_id)
+            .select_related("session")
+            .order_by("-session__start_date", "-start_date")
+        )
+        context["terms"] = all_terms
+
+        selected_term_id = self.request.GET.get("term")
+        active_term = None
+        if selected_term_id and selected_term_id.isdigit():
+            active_term = all_terms.filter(pk=int(selected_term_id)).first()
+        elif selected_term_id == "all":
+            active_term = "all"
+        else:
+            # Default to current term or latest term
+            active_term = all_terms.filter(is_current=True).first() or all_terms.first()
+
+        records_qs = (
+            AttendanceRecord.objects.filter(student=self.object)
+            .select_related(
+                "register",
+                "register__klass",
+                "register__session",
+                "register__term",
+                "register__taken_by",
+            )
+            .order_by("-register__date", "-created_at")
+        )
+
+        if active_term and active_term != "all":
+            records_qs = records_qs.filter(register__term=active_term)
+            context["selected_term"] = active_term
+        else:
+            context["selected_term"] = "all"
+
+        total_days = records_qs.count()
+        days_present = records_qs.filter(status=AttendanceStatus.PRESENT).count()
+        days_absent = records_qs.filter(status=AttendanceStatus.ABSENT).count()
+        days_late = records_qs.filter(status=AttendanceStatus.LATE).count()
+        days_excused = records_qs.filter(status=AttendanceStatus.EXCUSED).count()
+        attendance_rate = (
+            round((days_present + days_late) / total_days * 100, 1)
+            if total_days > 0
+            else 0.0
+        )
+
+        context["attendance_summary"] = {
+            "total_days": total_days,
+            "days_present": days_present,
+            "days_absent": days_absent,
+            "days_late": days_late,
+            "days_excused": days_excused,
+            "attendance_rate": attendance_rate,
+        }
+        context["attendance_records"] = records_qs[:100]
         return context
 
 
